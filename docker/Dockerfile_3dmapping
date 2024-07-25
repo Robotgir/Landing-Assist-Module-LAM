@@ -1,0 +1,78 @@
+ARG BASE_IMAGE=althack/ros2:humble-cuda-full-2024-07-10
+FROM $BASE_IMAGE
+
+# Install tzdata
+RUN apt-get update
+RUN	apt-get -y upgrade 
+RUN DEBIAN_FRONTEND=noninteractive TZ=Europe apt-get -y install tzdata
+
+# Set environment variable for ROS distribution
+ARG ROS_DISTRO=humble
+
+RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y --no-install-recommends \
+	python3 \
+	python3-pip \
+	sudo \
+	libglu1-mesa-dev \
+	xdg-user-dirs \
+	pulseaudio \
+	x11-xserver-utils \
+	libsdl2-2.0-0 \
+	libsdl2-dev \
+	nano 
+
+RUN apt-get install -y  \
+	ros-${ROS_DISTRO}-tf2-sensor-msgs \
+	ros-${ROS_DISTRO}-tf2-geometry-msgs \
+	ros-${ROS_DISTRO}-mavros* \
+	libyaml-cpp-dev \
+    ros-${ROS_DISTRO}-pcl-ros \
+    ros-${ROS_DISTRO}-pcl-conversions \
+    ros-${ROS_DISTRO}-nmea-msgs \
+    ros-${ROS_DISTRO}-tf2-ros \
+    ros-${ROS_DISTRO}-tf2-sensor-msgs \
+    ros-${ROS_DISTRO}-tf2-geometry-msgs \
+    ros-${ROS_DISTRO}-geodesy \
+    ros-${ROS_DISTRO}-libg2o \
+    ros-${ROS_DISTRO}-interactive-markers \
+    wget \
+    libceres-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+
+# Install Python packages
+RUN pip install numpy 
+RUN	pip install msgpack-rpc-python
+
+RUN python3 -m pip install --upgrade pip && \
+    pip3 install setuptools wheel && \
+    pip3 install airsim
+
+# Perform actions as root
+USER root
+
+#recommended to use gcc-8 https://github.com/microsoft/AirSim/pull/3976 hence installing it
+RUN sudo echo "deb [arch=amd64] http://archive.ubuntu.com/ubuntu focal main universe" >> /etc/apt/sources.list
+RUN sudo apt update
+RUN sudo apt install -y gcc-8 g++-8 
+
+USER ros
+	
+# RUN adduser --force-badname --disabled-password --gecos '' --shell /bin/bash airsim_user && \
+# 	echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers && \
+# 	adduser airsim_user sudo && \
+# 	adduser airsim_user audio && \
+# 	adduser airsim_user video
+
+# USER airsim_user
+WORKDIR /home/ros
+
+RUN mkdir -p /home/ros/Documents/AirSim
+COPY settings.json /home/ros/Documents/AirSim
+#ADD Documents /home/airsim_user/Documents
+
+RUN sudo chown -R ros /home/ros
+# RUN cd /home/ros/workspace/AirSim/ros2
+# RUN colcon build --cmake-args -DCMAKE_C_COMPILER=gcc-8 --cmake-args -DCMAKE_CXX_COMPILER=g++-8 --cmake-args -DCMAKE_BUILD_TYPE=Debug
+# RUN source install/setup.bash
