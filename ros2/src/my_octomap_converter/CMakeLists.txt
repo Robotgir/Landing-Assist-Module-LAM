@@ -14,7 +14,7 @@ find_package(PCL REQUIRED COMPONENTS common io)
 include_directories(
   include
   ${PCL_INCLUDE_DIRS}
-  ${octomap_INCLUDE_DIRS}
+  ${OCTOMAP_INCLUDE_DIRS}
 )
 
 link_directories(${PCL_LIBRARY_DIRS})
@@ -30,7 +30,7 @@ ament_target_dependencies(octomap_to_pcd
 
 target_link_libraries(octomap_to_pcd
   ${PCL_LIBRARIES}
-  ${octomap_LIBRARIES}
+  ${OCTOMAP_LIBRARIES}
 )
 
 
@@ -44,7 +44,7 @@ ament_target_dependencies(pcd_to_octomap
 
 target_link_libraries(pcd_to_octomap
   ${PCL_LIBRARIES}
-  ${octomap_LIBRARIES}
+  ${OCTOMAP_LIBRARIES}
 )
 
 # Install targets
