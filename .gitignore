@@ -26,3 +26,6 @@
 *.log
 .vscode/
 .idea/
+
+#media
+ros2/media/
