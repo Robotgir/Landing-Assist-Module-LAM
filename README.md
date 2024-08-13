@@ -158,12 +158,13 @@ colcon build --symlink-install --packages-ignore octomap_server2
 Download the example ros bag file from [here] https://drive.google.com/drive/folders/1BH9uTZXAa8oBXjFqKlQPvcEAp5Yt7zXi?usp=sharing
 
 
-1. import deps, build and launch octomap_server2
+1. import deps, build and launch octomap_server2:
+- import deps
 ```bash
 cd Landing-Assist-Module-LAM/ros2/src/
 vcs import . < path-to/Landing-Assist-Module-LAM/LAM_deps.repos
 ```
-- build
+- build packages
 ```bash
 cd ros2
 rosdep update
