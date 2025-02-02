@@ -9,7 +9,7 @@ int main(int argc, char **argv)
     // DATA STRUCTURING
     /////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    //// Create and visualize a 2D Grid Map.
+    // Create and visualize a 2D Grid Map.
     float gridmap_resolution = 0.1f;
     pcl::PointCloud<pcl::PointXYZ>::Ptr grid_map = create2DGridMap(filename, gridmap_resolution);
     if (!grid_map) {
@@ -51,7 +51,7 @@ int main(int argc, char **argv)
     // FILTERING
     /////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    // //// Apply voxel grid filter using Open3D and visualize.
+    //// Apply voxel grid filter using Open3D and visualize.
     double voxel_downsample_size = 0.15;
     auto downsampled_cloud = apply_voxel_grid_filter(filename, voxel_downsample_size);
     if (!downsampled_cloud) {
@@ -86,11 +86,11 @@ int main(int argc, char **argv)
     float leaf_size = 0.1f;
     auto cloud_downsampled = downsamplePointCloud<pcl::PointXYZI>(cloud_original, leaf_size);
 
-    // /////////////////////////////////////////////////////////////////////////////////////////////////////
-    // // WHile using this code comment line 78 to 87 ,this function use voxeldownsampled pointcloud
-    // //// --- Radius Outlier Removal Filter (PCL) ---
-    double radius_search = 0.1;
-    int min_neighbors = 4;
+    // // /////////////////////////////////////////////////////////////////////////////////////////////////////
+    // // // WHile using this code comment line 78 to 87 ,this function use voxeldownsampled pointcloud
+    // // //// --- Radius Outlier Removal Filter (PCL) ---
+    double radius_search = 0.1; //0.1 to 0.3,0.3 to 0.7,0.7 to 0.15
+    int min_neighbors = 4;      // 5 to 15,10 to 30,20 to 50
     float translation_offset = 0.0f; //change this value to visualize the filtered cloud in a different position along x axis if it 0 filtered and original pointcloud will be in the same position
     std::cout << "[SETTINGS] filename: " << filename
               << ", radius_search: " << radius_search
@@ -106,10 +106,10 @@ int main(int argc, char **argv)
         std::cerr << "[ERROR] Radius Outlier Removal resulted in an empty cloud. Skipping visualization." << std::endl;
     }
 
-    // ////// --- Bilateral Filter (PCL) ---
-    // //// WHile using this code comment line 78 to 87 ,this function use voxeldownsampled pointcloud
-    double sigma_s = 15.0;
-    double sigma_r = 0.3;
+    // // ////// --- Bilateral Filter (PCL) ---
+    // // //// WHile using this code comment line 78 to 87 ,this function use voxeldownsampled pointcloud
+    double sigma_s = 15.0; // Small point clouds or detailed structures: sigma_s = 1.0 - 5.0 ,Noisy or dense point clouds: sigma_s = 5.0 - 10.0,Large or very noisy point clouds: sigma_s = 10.0 - 15.0
+    double sigma_r = 0.3;  //Preserve edges and details: sigma_r = 0.05 - 0.1, Moderate smoothing: sigma_r = 0.1 - 0.2, Heavy denoising (risk of over-smoothing): sigma_r = 0.2 - 0.3
     float translation_offset = 0.0f; //change this value to visualize the filtered cloud in a different position along x axis if it 0 filtered and original pointcloud will be in the same position
     std::cout << "[SETTINGS] filename: " << filename
               << ", sigma_s: " << sigma_s
