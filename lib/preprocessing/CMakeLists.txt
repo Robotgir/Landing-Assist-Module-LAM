@@ -75,6 +75,25 @@ target_link_libraries(main
     pthread                # -lpthread
 )
 
+add_executable(test_pointcloud_preprocessing test_pointcloud_preprocessing.cpp)
+target_link_libraries(test_pointcloud_preprocessing 
+    ${PCL_LIBRARIES} 
+    Open3D::Open3D 
+    octomap 
+    gtest 
+    gtest_main
+    GL                     # -lGL
+    GLU                    # -lGLU
+    glfw                   # -lglfw
+    GLEW                   # -lGLEW
+    assimp                 # -lassimp
+    jsoncpp               # -ljsoncpp
+    jpeg                   # -ljpeg
+    png                    # -lpng
+    z                      # -lz
+    pthread                # -lpthread
+)
+
 # Link OpenMP last to ensure correct symbol resolution
 if(OPENMP_FOUND)
     target_link_libraries(main PRIVATE OpenMP::OpenMP_CXX)

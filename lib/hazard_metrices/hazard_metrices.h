@@ -86,18 +86,20 @@ struct PCLResult {
   PointCloudT::Ptr downsampled_cloud;
   PointCloudT::Ptr inlier_cloud;
   PointCloudT::Ptr outlier_cloud;
+  std::string pcl_method;
 };
 //=======================================STRUCT TO HOLD OPEN3D RESULT==========================================
 struct OPEN3DResult {
     std::shared_ptr<open3d::geometry::PointCloud> inlier_cloud;
     std::shared_ptr<open3d::geometry::PointCloud> outlier_cloud;
     std::shared_ptr<open3d::geometry::PointCloud> downsampled_cloud;
+    std::string open3d_method;
 };
 //====================================== VISUALIZATION PCL ====================================================
 inline void visualizePCL(const PCLResult &result)
 {
   // Create a visualizer object.
-  pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer("PointCloud Viewer"));
+  pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer(result.pcl_method + " PCL RESULT "));
   viewer->setBackgroundColor(1.0, 1.0, 1.0);
 
   // Add the outlier cloud (red) if available.
@@ -142,7 +144,7 @@ inline void VisualizeOPEN3D(const OPEN3DResult& result) {
     geometries.push_back(outlier_cloud);
 
     // Launch the visualizer.
-    open3d::visualization::DrawGeometries(geometries, "RANSAC Segmentation Result", 800, 600);
+    open3d::visualization::DrawGeometries(geometries, result.open3d_method + " OPEN3D  Result", 800, 600);
 }
 
 //================================================================================================================================================
@@ -229,7 +231,7 @@ PCLResult computeNormalsAndClassifyPoints(const std::string& file_path,
 
     std::cout << "Inliers (slope ≤ " << slope_threshold << "°): " << result.inlier_cloud->size() << std::endl;
     std::cout << "Outliers (slope > " << slope_threshold << "°): " << result.outlier_cloud->size() << std::endl;
-
+    result.pcl_method="PCA";
     return result;
 }
 
@@ -301,7 +303,7 @@ inline OPEN3DResult RansacPlaneSegmentation(
 
     std::cout << "Inlier cloud has " << result.inlier_cloud->points_.size() << " points." << std::endl;
     std::cout << "Outlier cloud has " << result.outlier_cloud->points_.size() << " points." << std::endl;
-
+    result.open3d_method ="RANSAC";
     return result;
 }
 
@@ -371,7 +373,7 @@ inline PCLResult performRANSAC(const std::string &file_path,
   // Extract outliers (points not on the plane)
   extract.setNegative(true);
   extract.filter(*result.outlier_cloud);
-
+  result.pcl_method="RANSAC";
   return result;
 }
 
@@ -432,7 +434,7 @@ inline PCLResult performPROSAC(const std::string &file_path,
   // Extract outliers (points not on the plane)
   extract.setNegative(true);
   extract.filter(*result.outlier_cloud);
-
+  result.pcl_method="PROSAC";
   return result;
 }
 
@@ -525,6 +527,7 @@ inline OPEN3DResult LeastSquaresPlaneFitting(const std::string &file_path, doubl
               << outliers->points_.size() << " outliers." << std::endl;
     result.inlier_cloud = inliers;
     result.outlier_cloud = outliers;
+    result.open3d_method ="LEAST SQUARE PLANE FITTING";
     return result;
     //return std::make_tuple(inliers, outliers);
 }
@@ -586,7 +589,7 @@ inline PCLResult performLMEDS(const std::string &file_path,
   // Extract outliers (points not on the plane)
   extract.setNegative(true);
   extract.filter(*result.outlier_cloud);
-
+  result.pcl_method="LMEDS";
   return result;
 }
 
@@ -809,6 +812,7 @@ inline PCLResult regionGrowingSegmentation(
   PCLResult result;
   result.inlier_cloud = inliers_cloud;
   result.outlier_cloud = outliers_cloud;
+  result.pcl_method="REGION GROWING SEGMENTATION";
   return result;
 }
 

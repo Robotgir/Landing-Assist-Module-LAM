@@ -6,8 +6,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ----------------------------------------------------------------------------
-# 1. Find OPEN3d,PCL and include the necessary modules
-#    (Add 'io' if you need loadPCDFile())
+# 1. Find OPEN3D, PCL, and include the necessary modules
 # ----------------------------------------------------------------------------
 
 find_package(Open3D REQUIRED)
@@ -16,82 +15,84 @@ find_package(PCL 1.4 REQUIRED COMPONENTS common filters io visualization segment
 include_directories(${PCL_INCLUDE_DIRS})
 add_definitions(${PCL_DEFINITIONS})
 
-find_package(octomap REQUIRED)  # This will set OCTOMAP_INCLUDE_DIRS & OCTOMAP_LIBRARIES
+find_package(octomap REQUIRED)  # Sets OCTOMAP_INCLUDE_DIRS & OCTOMAP_LIBRARIES
 include_directories(${OCTOMAP_INCLUDE_DIRS})
-# add_definitions(${OCTOMAP_DEFINITIONS})
 
 # ----------------------------------------------------------------------------
 # 2. Optionally, find OpenMP if needed for parallelization
 # ----------------------------------------------------------------------------
 find_package(OpenMP REQUIRED)
 if(OPENMP_FOUND)
-    # Let CMake automatically add the correct compile/link flags
-    # for OpenMP instead of manually using -fopenmp or -lgomp
-    # (This is the recommended modern approach)
     message(STATUS "OpenMP found. Linking to OpenMP libraries.")
 endif()
 
 # ----------------------------------------------------------------------------
 # 3. Manually include other libraries' include paths
-#    (Only do this if you do NOT rely on pkg-config or CMake find_package
-#     for these libraries)
 # ----------------------------------------------------------------------------
 include_directories(
-   
     /usr/local/include/eigen3
     /usr/local/include/pcl-1.14
-
 )
-  
+
 # ----------------------------------------------------------------------------
-# 4. Create the executable
+# 4. Find VTK components (required by Open3D's third-party VTK modules)
+# ----------------------------------------------------------------------------
+
+find_package(VTK REQUIRED) 
+# If you want to specify them, do:
+# find_package(VTK REQUIRED COMPONENTS FiltersGeneral FiltersModeling FiltersCore CommonDataModel CommonExecutionModel)
+
+
+set(CMAKE_EXE_LINKER_FLAGS
+    "${CMAKE_EXE_LINKER_FLAGS} -Wl,--copy-dt-needed-entries"
+)
+# ----------------------------------------------------------------------------
+# 5. Create the executables
 # ----------------------------------------------------------------------------
 add_executable(main main.cpp)
+add_executable(test_hazard_metrices test_hazard_metrices.cpp)
 
 # ----------------------------------------------------------------------------
-# 5. Link libraries
-#    - PCL libraries (from find_package)
-#    - OpenMP (if found)
-#    - Other manually specified libraries
+# 6. Link libraries
 # ----------------------------------------------------------------------------
-
- 
 target_link_libraries(main
     PRIVATE
-    Open3D::Open3D                  # -lOpen3D
+    Open3D::Open3D           # -lOpen3D
     ${PCL_LIBRARIES} 
     ${OCTOMAP_LIBRARIES}  
     octomap 
     octomath
-    GL                     # -lGL
-    GLU                    # -lGLU
-    glfw                   # -lglfw
-    GLEW                   # -lGLEW
-    assimp                 # -lassimp
-    jsoncpp               # -ljsoncpp
-    jpeg                   # -ljpeg
-    png                    # -lpng
-    z                      # -lz
-    pthread                # -lpthread
+    GL                       # -lGL
+    GLU                      # -lGLU
+    glfw                     # -lglfw
+    GLEW                     # -lGLEW
+    assimp                   # -lassimp
+    jsoncpp                 # -ljsoncpp
+    jpeg                     # -ljpeg
+    png                      # -lpng
+    z                        # -lz
+    pthread                  # -lpthread
+    ${VTK_LIBRARIES}         # Link the VTK libraries to resolve missing symbols
 )
 
-add_executable(test_hazard_metrices test_hazard_metrices.cpp)
 target_link_libraries(test_hazard_metrices 
+    PRIVATE
     ${PCL_LIBRARIES} 
     Open3D::Open3D 
     octomap 
     gtest 
     gtest_main
-    GL                     # -lGL
-    GLU                    # -lGLU
-    glfw                   # -lglfw
-    GLEW                   # -lGLEW
-    assimp                 # -lassimp
-    jsoncpp               # -ljsoncpp
-    jpeg                   # -ljpeg
-    png                    # -lpng
-    z                      # -lz
-    pthread                # -lpthread
+    GL                       # -lGL
+    GLU                      # -lGLU
+    glfw                     # -lglfw
+    GLEW                     # -lGLEW
+    assimp                   # -lassimp
+    jsoncpp                 # -ljsoncpp
+    jpeg                     # -ljpeg
+    png                      # -lpng
+    z                        # -lz
+    pthread                  # -lpthread
+    ${VTK_LIBRARIES}         # Link VTK libraries here as well
 )
 
 # Link OpenMP last to ensure correct symbol resolution
