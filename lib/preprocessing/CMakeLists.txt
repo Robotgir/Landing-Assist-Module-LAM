@@ -42,14 +42,26 @@ include_directories(
     /usr/local/include/pcl-1.14
 
 )
-  
+
 # ----------------------------------------------------------------------------
-# 4. Create the executable
+# 4. Find VTK components (required by Open3D's third-party VTK modules)
+# ----------------------------------------------------------------------------
+
+# If you want to specify them, do:
+# find_package(VTK REQUIRED COMPONENTS FiltersGeneral FiltersModeling FiltersCore CommonDataModel CommonExecutionModel)
+
+
+set(CMAKE_EXE_LINKER_FLAGS
+    "${CMAKE_EXE_LINKER_FLAGS} -Wl,--copy-dt-needed-entries"
+)
+
+# ----------------------------------------------------------------------------
+# 5. Create the executable
 # ----------------------------------------------------------------------------
 add_executable(main main.cpp)
 
 # ----------------------------------------------------------------------------
-# 5. Link libraries
+# 6. Link libraries
 #    - PCL libraries (from find_package)
 #    - OpenMP (if found)
 #    - Other manually specified libraries

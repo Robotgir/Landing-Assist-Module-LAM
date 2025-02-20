@@ -6,14 +6,6 @@ int main(int argc, char **argv)
     // Input file (same for all blocks)
     static const std::string file_path = "/home/airsim_user/Landing-Assist-Module-LAM/lib/hazard_metrices/test.pcd";
 
-    // pcl::PointCloud<pcl::PointXYZ>::Ptr original_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-    // if (pcl::io::loadPCDFile<pcl::PointXYZ>(file_path, *original_cloud) == -1)
-    // {
-    //     PCL_ERROR("Couldn't read file %s\n", file_path.c_str());
-    //     return -1;
-    // }
-    // std::cout << "Loaded " << original_cloud->size() << " points from " << file_path << std::endl;
-
     //=============================================================================================
     //Block 1: PCA / Normal Estimation / Classification (PCL) TESTED BUT SPEED SHOULD BE INCREASED
     //=============================================================================================
@@ -22,19 +14,16 @@ int main(int argc, char **argv)
         float voxel_size =0.45f;
         float slope_threshold = 10.0f;
         int k =10;
-        pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
-
+        
       // Get classification results including the downsampled point cloud.
-        PCLResult classification = computeNormalsAndClassifyPoints<PointT>(file_path,
-                                                                                           normals,
-                                                                                           voxel_size ,
-                                                                                           slope_threshold,  // slope threshold
-                                                                                           k);    // k-nearest neighbors
+        PCLResult result = PrincipleComponentAnalysis<PointT>(file_path,    
+                                                              voxel_size ,
+                                                              slope_threshold,  // slope threshold
+                                                              k);    // k-nearest neighbors
 
       // Use the stored downsampled point cloud in the visualization function.
-        int point_size = 3;
-        visualizePCL(classification);
- 
+        visualizePCL(result);
+
     }
 
     //======================================================

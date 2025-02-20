@@ -2,6 +2,10 @@
 #include <gtest/gtest.h>
 #include <fstream>
 
+
+// Global flag to control visualization in tests.
+bool g_skipVisualization = false;
+
 // Change this file path if needed.
 static const std::string filename = "/home/airsim_user/Landing-Assist-Module-LAM/lib/preprocessing/3_7_2024_dense.pcd";
 
@@ -17,7 +21,16 @@ bool fileExists(const std::string &path) {
 
 TEST(DataStructuring, Create2DGridMap) {
     float gridmap_resolution = 0.1f;
-    auto grid_map = create2DGridMap(filename, gridmap_resolution);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr grid_map = create2DGridMap(filename, gridmap_resolution);
+
+    if (!g_skipVisualization) {
+        pcl::PointCloud<pcl::PointXYZ>::Ptr grid_map = create2DGridMap(filename, gridmap_resolution);
+        // Visualize the segmentation result; press 'q' to close the window.
+        visualize2DGridMap(grid_map);
+    }else{
+        std::cout << "Grid map is null or visualization is skipped." << std::endl;
+    } 
+
     // Check that the returned pointer is not null and has points.
     EXPECT_NE(grid_map, nullptr);
     if(grid_map)
@@ -29,6 +42,12 @@ TEST(DataStructuring, Create2DGridMap) {
 TEST(DataStructuring, Create3DGridMap) {
     double voxel_size = 0.1;
     VoxelGridResult voxelgrid_result = create_3d_grid(filename, voxel_size);
+
+    if (!g_skipVisualization) {
+        // Visualize the segmentation result; press 'q' to close the window.
+        Visualize3dGridMap(voxelgrid_result.voxel_grid_ptr);
+    } 
+    
     EXPECT_NE(voxelgrid_result.cloud_ptr, nullptr);
     EXPECT_NE(voxelgrid_result.voxel_grid_ptr, nullptr);
     if(voxelgrid_result.cloud_ptr)
@@ -79,6 +98,11 @@ TEST(DataStructuring, ConvertPointCloudToOctomap) {
 TEST(Filtering, ApplyVoxelGridFilter) {
     double voxel_downsample_size = 0.15;
     auto downsampled_cloud = apply_voxel_grid_filter(filename, voxel_downsample_size);
+    
+    if (!g_skipVisualization) {
+        // Visualize the segmentation result; press 'q' to close the window.
+        VisualizeGeometry(downsampled_cloud);
+    }   
     EXPECT_NE(downsampled_cloud, nullptr);
     if(downsampled_cloud)
     {
@@ -90,6 +114,11 @@ TEST(Filtering, ApplySORFilter) {
     int nb_neighbors = 15;
     double std_ratio = 0.1;
     SORFilterResult sor_result = apply_sor_filter(filename, nb_neighbors, std_ratio);
+
+    if (!g_skipVisualization) {
+        // Visualize the segmentation result; press 'q' to close the window.
+        visualize_sor_filtered_point_cloud(sor_result.original_cloud, sor_result.filtered_cloud);
+    } 
     EXPECT_NE(sor_result.original_cloud, nullptr);
     EXPECT_NE(sor_result.filtered_cloud, nullptr);
     if(sor_result.original_cloud)
@@ -136,6 +165,16 @@ TEST(PCLFiltering, ApplyRadiusFilter) {
     double radius_search = 0.1;
     int min_neighbors = 4;
     auto cloud_radius_filtered = applyRadiusFilter<pcl::PointXYZI>(cloud_downsampled, radius_search, min_neighbors);
+    
+    if (!g_skipVisualization) {
+        // Visualize the segmentation result; press 'q' to close the window.
+        visualizeClouds<pcl::PointXYZI>(cloud_downsampled, cloud_radius_filtered,
+                                         "Radius Outlier Removal",
+                                         "original cloud",
+                                         "radius_filtered cloud",
+                                         2, 0.0f);
+    } 
+    
     // Check that the filtered cloud is not empty.
     EXPECT_FALSE(cloud_radius_filtered->empty());
 }
@@ -152,6 +191,16 @@ TEST(PCLFiltering, ApplyBilateralFilter) {
     double sigma_s = 15.0;
     double sigma_r = 0.3;
     auto cloud_bilateral_filtered = applyBilateralFilter<pcl::PointXYZI>(cloud_downsampled, sigma_s, sigma_r);
+    
+    if (!g_skipVisualization) {
+        // Visualize the segmentation result; press 'q' to close the window.
+        visualizeClouds<pcl::PointXYZI>(cloud_downsampled, cloud_bilateral_filtered,
+                                         "Bilateral Filter",
+                                         "original cloud",
+                                         "bilateral_filtered cloud",
+                                         2, 0.0f);
+    } 
+
     // Check that the bilateral filtered cloud is not empty.
     EXPECT_FALSE(cloud_bilateral_filtered->empty());
 }
@@ -161,6 +210,13 @@ TEST(PCLFiltering, ApplyBilateralFilter) {
 ////////////////////////////////////////////////////////////
 
 int main(int argc, char **argv) {
+
+    for (int i = 1; i < argc; ++i) {
+        std::string arg(argv[i]);
+        if (arg == "--no-vis") {
+            g_skipVisualization = true;
+        }
+    }
     ::testing::InitGoogleTest(&argc, argv);
     // Note: We do not call visualization functions here in order not to block the tests.
     return RUN_ALL_TESTS();

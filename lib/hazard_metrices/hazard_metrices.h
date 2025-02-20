@@ -34,18 +34,13 @@
 #include <eigen3/Eigen/Dense>
 #include <open3d/Open3D.h>
 
+#include <pcl/common/pca.h>
+
 using PointT = pcl::PointXYZ;
 using PointCloudT = pcl::PointCloud<PointT>;
 
 
-//#include <pcl/common/pca.h>
-
-//----------------------------------------------------------------------------
-// Function: computeNormalsAndClassifyPoints
-// Computes normals using PCA on local neighborhoods, calculates slopes,
-// and classifies points into inliers (slope ≤ threshold) and outliers (slope > threshold).
-//----------------------------------------------------------------------------
-
+//============Helper function to downsample open3d point cloud=======================
 inline std::shared_ptr<open3d::geometry::PointCloud> downSamplePointCloudOpen3d(
     const std::shared_ptr<open3d::geometry::PointCloud>& pcd, double voxel_size) {
     
@@ -55,22 +50,7 @@ inline std::shared_ptr<open3d::geometry::PointCloud> downSamplePointCloudOpen3d(
     return downsampled_pcd;
 }
 
-template <typename PointT>
-void downsamplePointCloudPCL(typename pcl::PointCloud<PointT>::ConstPtr input_cloud,
-                          typename pcl::PointCloud<PointT>::Ptr output_cloud,
-                          float voxel_size = 0.05f)  // Default voxel size: 5 cm
-{
-    pcl::VoxelGrid<PointT> voxel_grid;
-    voxel_grid.setInputCloud(input_cloud);
-    voxel_grid.setLeafSize(voxel_size, voxel_size, voxel_size);  // Set voxel size
-    voxel_grid.filter(*output_cloud);
-
-    std::cout << "Downsampled point cloud: " << output_cloud->size() << " points." << std::endl;
-}
-
-
-
-// Helper function to downsample the point cloud.
+//===========Helper function to downsample the point cloud. PCL ==============================================
 template <typename PointT>
 inline void downsamplePointCloudPCL(const typename pcl::PointCloud<PointT>::Ptr &input_cloud,
                                      typename pcl::PointCloud<PointT>::Ptr &output_cloud,
@@ -81,6 +61,8 @@ inline void downsamplePointCloudPCL(const typename pcl::PointCloud<PointT>::Ptr 
     vg.setLeafSize(leaf_size, leaf_size, leaf_size);
     vg.filter(*output_cloud);
 }
+//============================================================================================================
+
 //======================================STRUCT TO HOLD PCL RESULT ============================================
 struct PCLResult {
   PointCloudT::Ptr downsampled_cloud;
@@ -147,75 +129,79 @@ inline void VisualizeOPEN3D(const OPEN3DResult& result) {
     open3d::visualization::DrawGeometries(geometries, result.open3d_method + " OPEN3D  Result", 800, 600);
 }
 
-//================================================================================================================================================
-
+//======================================PCA (Principle Component Analysis)(PCL)==========================================================================================================
 
 template <typename PointT>
-PCLResult computeNormalsAndClassifyPoints(const std::string& file_path,
-                                          pcl::PointCloud<pcl::Normal>::Ptr normals,
-                                          float voxel_size = 0.45f,
-                                          float slope_threshold = 20.0f,  // degrees
-                                          int k = 10)  // k-nearest neighbors
+PCLResult PrincipleComponentAnalysis(const std::string& file_path,
+                                     float voxel_size = 0.45f,
+                                     float slope_threshold = 20.0f,  // degrees
+                                     int k = 10)
 {
     PCLResult result;
-    
-    // Allocate the result point clouds.
+    pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
+    // Allocate result point clouds.
     result.inlier_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
     result.outlier_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
     result.downsampled_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
 
     // Load the original point cloud.
     typename pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>);
-    if (pcl::io::loadPCDFile<PointT>(file_path, *cloud) == -1) {
+    if (pcl::io::loadPCDFile<PointT>(file_path, *cloud) == -1)
+    {
         PCL_ERROR("Couldn't read file %s\n", file_path.c_str());
         return result;
     }
     std::cout << "[Block 1] Loaded " << cloud->size() << " points from " << file_path << std::endl;
 
-    // (Optional) Downsample the cloud. If you wish to downsample, uncomment and adjust the following:
+    // (Optional) Downsample the cloud.
     downsamplePointCloudPCL<PointT>(cloud, result.downsampled_cloud, voxel_size);
-    //std::cout << "Pointcloud downsampled " << result.downsampled_cloud->size();
-    // For now, we'll assume no downsampling is applied and just use the loaded cloud.
+    // If no downsampling is desired, simply use the loaded cloud.
     result.downsampled_cloud = cloud;
 
     // Build a kd-tree for neighborhood searches.
     pcl::KdTreeFLANN<PointT> tree;
-    tree.setInputCloud(cloud);
+    tree.setInputCloud(result.downsampled_cloud);
 
-    // Prepare the normals cloud.
-    normals->points.resize(cloud->points.size());
-    normals->width    = cloud->width;
-    normals->height   = cloud->height;
-    normals->is_dense = cloud->is_dense;
+    // Prepare the normals result.downsampled_cloud.
+    normals->points.resize(result.downsampled_cloud->points.size());
+    normals->width    = result.downsampled_cloud->width;
+    normals->height   = result.downsampled_cloud->height;
+    normals->is_dense = result.downsampled_cloud->is_dense;
 
+    // Pre-allocate temporary containers.
     std::vector<int> neighbor_indices(k);
     std::vector<float> sqr_distances(k);
+    typename pcl::PointCloud<PointT>::Ptr local_cloud(new pcl::PointCloud<PointT>());
+    local_cloud->points.reserve(k);
 
-    // Process each point in the cloud.
-    for (size_t i = 0; i < cloud->points.size(); i++)
+    // Process each point.
+    for (size_t i = 0; i < result.downsampled_cloud->points.size(); i++)
     {
-        if (tree.nearestKSearch(cloud->points[i], k, neighbor_indices, sqr_distances) > 0)
+        // Find k-nearest neighbors for current point.
+        if (tree.nearestKSearch(result.downsampled_cloud->points[i], k, neighbor_indices, sqr_distances) > 0)
         {
-            // Compute local centroid and covariance.
-            Eigen::Vector4f local_centroid;
-            pcl::compute3DCentroid(*cloud, neighbor_indices, local_centroid);
+            // Build the local neighborhood.
+            local_cloud->points.resize(neighbor_indices.size());
+            for (size_t j = 0; j < neighbor_indices.size(); j++)
+                local_cloud->points[j] = result.downsampled_cloud->points[neighbor_indices[j]];
 
-            Eigen::Matrix3f covariance;
-            pcl::computeCovarianceMatrixNormalized(*cloud, neighbor_indices, local_centroid, covariance);
-
-            // The eigenvector corresponding to the smallest eigenvalue is the surface normal.
-            Eigen::SelfAdjointEigenSolver<Eigen::Matrix3f> solver(covariance);
-            Eigen::Vector3f normal = solver.eigenvectors().col(0);
+            // Use PCL PCA on the local cloud.
+            pcl::PCA<PointT> pca;
+            pca.setInputCloud(local_cloud);
+            // Directly obtain the eigenvectors.
+            Eigen::Matrix3f eigen_vectors = pca.getEigenVectors();
+            // The first column (smallest eigenvalue) represents the normal.
+            Eigen::Vector3f normal = eigen_vectors.col(0);
 
             normals->points[i].normal_x = normal.x();
             normals->points[i].normal_y = normal.y();
             normals->points[i].normal_z = normal.z();
 
-            // Calculate slope as the angle with vertical (0,0,1).
+            // Compute the slope (angle with vertical).
             float dot_product = std::fabs(normal.dot(Eigen::Vector3f(0.0f, 0.0f, 1.0f)));
             float slope = std::acos(dot_product) * 180.0f / static_cast<float>(M_PI);
 
-            // Classify point based on slope threshold.
+            // Classify based on the slope.
             if (slope <= slope_threshold)
                 result.inlier_cloud->push_back(cloud->points[i]);  // Safe landing point.
             else
@@ -231,17 +217,12 @@ PCLResult computeNormalsAndClassifyPoints(const std::string& file_path,
 
     std::cout << "Inliers (slope ≤ " << slope_threshold << "°): " << result.inlier_cloud->size() << std::endl;
     std::cout << "Outliers (slope > " << slope_threshold << "°): " << result.outlier_cloud->size() << std::endl;
-    result.pcl_method="PCA";
+    result.pcl_method = "PCA";
     return result;
 }
 
-//=========================================================================================================================
+//===========================================RANSAC Plane Segmentation (OPEN3D)=======================================================================
 
-
-// RANSAC plane segmentation function.
-// It loads a point cloud from file, downsamples it internally,
-// performs RANSAC plane segmentation, and splits the downsampled cloud
-// into inlier and outlier point clouds.
 inline OPEN3DResult RansacPlaneSegmentation(
     const std::string& file_path,
     double voxel_size,
@@ -307,16 +288,8 @@ inline OPEN3DResult RansacPlaneSegmentation(
     return result;
 }
 
+//===========================================RANSAC Plane Segmentation (PCL)=======================================================================
 
-
-
-
-// Function to perform RANSAC segmentation.
-// Parameters:
-// - filePath: Path to the input PCD file.
-// - voxelSize: Leaf size for the voxel grid downsampling.
-// - distanceThreshold: Maximum distance from the plane for a point to be considered an inlier.
-// - maxIterations: Maximum number of iterations for the RANSAC algorithm.
 inline PCLResult performRANSAC(const std::string &file_path,
                            float voxelSize = 0.05f,
                            float distanceThreshold = 0.02f,
@@ -377,6 +350,7 @@ inline PCLResult performRANSAC(const std::string &file_path,
   return result;
 }
 
+//===========================================PROSAC Plane Segmentation (PCL)=======================================================================
 
 inline PCLResult performPROSAC(const std::string &file_path,
                            float voxelSize = 0.05f,
@@ -438,6 +412,7 @@ inline PCLResult performPROSAC(const std::string &file_path,
   return result;
 }
 
+//===========================================RANSAC Plane Based Centroid Detection (OPEN3D)=======================================================================
 
 inline std::tuple<Eigen::Vector3d, std::shared_ptr<open3d::geometry::PointCloud>>
 RansacPlaneAndComputeCentroid(
@@ -467,6 +442,8 @@ RansacPlaneAndComputeCentroid(
 
     return std::make_tuple(centroid,result.downsampled_cloud);
 }
+
+//====================================Least Squares Plane Fitting (OPEN3D)=======================================================================
 
 inline OPEN3DResult LeastSquaresPlaneFitting(const std::string &file_path, double voxel_size, double distance_threshold) {
     // Load the point cloud from file.
@@ -532,6 +509,7 @@ inline OPEN3DResult LeastSquaresPlaneFitting(const std::string &file_path, doubl
     //return std::make_tuple(inliers, outliers);
 }
 
+//=======================================Least of Median Square Plane Fitting (PCL)=======================================================================
 
 inline PCLResult performLMEDS(const std::string &file_path,
                            float voxelSize = 0.05f,
@@ -593,6 +571,7 @@ inline PCLResult performLMEDS(const std::string &file_path,
   return result;
 }
 
+//===========================================Average 3D Gradient (PCL)=======================================================================
 
 // Function to compute normals using the Average 3D Gradient method,
 // classify points based on a slope threshold, and return inliers and outliers.
@@ -686,6 +665,9 @@ inline PCLResult performLMEDS(const std::string &file_path,
 // Returns:
 //   A RegionGrowingSegmentationResult structure containing the downsampled cloud,
 //   the inliers (points in any region), and the outliers.
+
+//===========================================RegionGrowing Segmentation (PCL)=======================================================================
+
 inline PCLResult regionGrowingSegmentation(
     const std::string &file_path,
     float voxel_leaf,

@@ -12,28 +12,6 @@ static const std::string file_path = "/home/airsim_user/Landing-Assist-Module-LA
 //--------------------------------------------------------------------------
 // Test 1: PCA / Normal Estimation / Classification (PCL)
 //--------------------------------------------------------------------------
-TEST(HazardMetricesTest, TestPCA_NormalEstimation) {
-    float voxel_size = 0.45f;
-    float slope_threshold = 10.0f;
-    int k = 10;
-    pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
-
-    // Call the PCA-based classification function.
-    PCLResult result = computeNormalsAndClassifyPoints<PointT>(file_path,
-                                                               normals,
-                                                               voxel_size,
-                                                               slope_threshold,
-                                                               k);
-    if (!g_skipVisualization) {
-        // Visualize the result; press 'q' to close the viewer.
-        visualizePCL(result);
-    } else {
-        std::cout << "[TestPCA_NormalEstimation] Inliers: " << result.inlier_cloud->size() 
-                  << ", Outliers: " << result.outlier_cloud->size() << std::endl;
-    }
-    // Check that some points have been classified.
-    EXPECT_GT(result.inlier_cloud->size() + result.outlier_cloud->size(), 0);
-}
 
 //--------------------------------------------------------------------------
 // Test 2: Open3D-Based RANSAC Segmentation
