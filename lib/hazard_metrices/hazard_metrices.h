@@ -161,7 +161,7 @@ PCLResult PrincipleComponentAnalysis(const std::string& file_path,
     // (Optional) Downsample the cloud.
     downsamplePointCloudPCL<PointT>(cloud, result.downsampled_cloud, voxel_size);
     // If no downsampling is desired, simply use the loaded cloud.
-    result.downsampled_cloud = cloud;
+    //result.downsampled_cloud = cloud;
 
     // Build a kd-tree for neighborhood searches.
     pcl::KdTreeFLANN<PointT> tree;
