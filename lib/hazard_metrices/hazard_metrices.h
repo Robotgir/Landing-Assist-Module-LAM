@@ -35,6 +35,9 @@
 #include <open3d/Open3D.h>
 
 #include <pcl/common/pca.h>
+#include <pcl/surface/convex_hull.h>
+
+#include <omp.h>
 
 using PointT = pcl::PointXYZ;
 using PointCloudT = pcl::PointCloud<PointT>;
@@ -69,6 +72,7 @@ struct PCLResult {
   PointCloudT::Ptr inlier_cloud;
   PointCloudT::Ptr outlier_cloud;
   std::string pcl_method;
+  pcl::ModelCoefficients::Ptr plane_coefficients;
 };
 //=======================================STRUCT TO HOLD OPEN3D RESULT==========================================
 struct OPEN3DResult {
@@ -76,6 +80,7 @@ struct OPEN3DResult {
     std::shared_ptr<open3d::geometry::PointCloud> outlier_cloud;
     std::shared_ptr<open3d::geometry::PointCloud> downsampled_cloud;
     std::string open3d_method;
+     Eigen::Vector4d plane_model;  // To store the plane model: [a, b, c, d]
 };
 //====================================== VISUALIZATION PCL ====================================================
 inline void visualizePCL(const PCLResult &result)
@@ -255,6 +260,8 @@ inline OPEN3DResult RansacPlaneSegmentation(
     Eigen::Vector4d plane_model;
     auto [plane, indices] = result.downsampled_cloud->SegmentPlane(distance_threshold, ransac_n, num_iterations, probability);
     plane_model = plane;
+    result.plane_model = plane_model;
+
     std::cout << "Plane model: " << plane_model.transpose() << std::endl;
     std::cout << "Found " << indices.size() << " inliers for the plane." << std::endl;
 
@@ -336,7 +343,10 @@ inline PCLResult performRANSAC(const std::string &file_path,
     return result;
   }
   std::cout << "RANSAC found " << inliers->indices.size() << " inliers." << std::endl;
-
+  
+  // Store the plane coefficients in the result structure
+  result.plane_coefficients = coefficients;
+  
   pcl::ExtractIndices<PointT> extract;
   extract.setInputCloud(result.downsampled_cloud);
   extract.setIndices(inliers);
@@ -398,6 +408,9 @@ inline PCLResult performPROSAC(const std::string &file_path,
     return result;
   }
   std::cout << "PROSAC found " << inliers->indices.size() << " inliers." << std::endl;
+
+  // Store the plane coefficients in the result structure
+  result.plane_coefficients = coefficients;
 
   pcl::ExtractIndices<PointT> extract;
   extract.setInputCloud(result.downsampled_cloud);
@@ -557,7 +570,10 @@ inline PCLResult performLMEDS(const std::string &file_path,
     return result;
   }
   std::cout << "LMEDS found " << inliers->indices.size() << " inliers." << std::endl;
-
+  
+  // Store the plane coefficients in the result structure
+  result.plane_coefficients = coefficients;
+  
   pcl::ExtractIndices<PointT> extract;
   extract.setInputCloud(result.downsampled_cloud);
   extract.setIndices(inliers);
@@ -573,98 +589,70 @@ inline PCLResult performLMEDS(const std::string &file_path,
 
 //===========================================Average 3D Gradient (PCL)=======================================================================
 
-// Function to compute normals using the Average 3D Gradient method,
-// classify points based on a slope threshold, and return inliers and outliers.
-// std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::PointCloud<pcl::PointXYZRGB>::Ptr>
-// computeNormalsUsingAverage3DGradient(const pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud,
-//                                       float slope_threshold = 20.0f,
-//                                       float max_depth_change_factor = 0.02f,
-//                                       float normal_smoothing_size = 10.0f)
-// {
-//     // Container for computed normals.
-//     pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
+PCLResult Average3DGradientSegmentation(const std::string &file_path,
+                                          double angle_threshold,
+                                          double voxel_size)
+{
+    PCLResult result;
+    result.downsampled_cloud = pcl::make_shared<PointCloudT>();
+    result.inlier_cloud = pcl::make_shared<PointCloudT>();
+    result.outlier_cloud = pcl::make_shared<PointCloudT>();
+    result.plane_coefficients = pcl::make_shared<pcl::ModelCoefficients>();
+    result.pcl_method = "Average3DGradient";
 
-//     // Set up the integral image normal estimation (using the AVERAGE_3D_GRADIENT method).
-//     pcl::IntegralImageNormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
-//     ne.setNormalEstimationMethod(
-//         ne.AVERAGE_3D_GRADIENT);
-//     ne.setMaxDepthChangeFactor(max_depth_change_factor);
-//     ne.setNormalSmoothingSize(normal_smoothing_size);
-//     ne.setInputCloud(cloud);
-//     ne.compute(*normals);
+    // Load the point cloud from file.
+    PointCloudT::Ptr cloud(new PointCloudT);
+    if (pcl::io::loadPCDFile<PointT>(file_path, *cloud) == -1) {
+        PCL_ERROR("Couldn't read file %s \n", file_path.c_str());
+        return result;
+    }
+    std::cout << "Loaded point cloud with " << cloud->points.size() << " points." << std::endl;
 
-//     // Containers for inliers (green) and outliers (red).
-//     pcl::PointCloud<pcl::PointXYZRGB>::Ptr inliers(new pcl::PointCloud<pcl::PointXYZRGB>);
-//     pcl::PointCloud<pcl::PointXYZRGB>::Ptr outliers(new pcl::PointCloud<pcl::PointXYZRGB>);
+    // Downsample the cloud using VoxelGrid filter.
+    pcl::VoxelGrid<PointT> vg;
+    vg.setInputCloud(cloud);
+    vg.setLeafSize(static_cast<float>(voxel_size), static_cast<float>(voxel_size), static_cast<float>(voxel_size));
+    vg.filter(*result.downsampled_cloud);
+    std::cout << "Downsampled point cloud has " << result.downsampled_cloud->points.size() << " points." << std::endl;
 
-//     // For each point, compute the angle between its normal and the vertical vector (0, 0, 1).
-//     for (size_t i = 0; i < cloud->points.size(); i++)
-//     {
-//         const pcl::PointXYZ &pt = cloud->points[i];
-//         const pcl::Normal &n = normals->points[i];
+    // Compute normals for the downsampled cloud.
+    pcl::NormalEstimation<PointT, pcl::Normal> ne;
+    ne.setInputCloud(result.downsampled_cloud);
+    typename pcl::search::KdTree<PointT>::Ptr tree(new pcl::search::KdTree<PointT>());
+    ne.setSearchMethod(tree);
+    ne.setKSearch(100);
+    //ne.setRadiusSearch(50);
 
-//         Eigen::Vector3f normal(n.normal_x, n.normal_y, n.normal_z);
-//         float dot = std::fabs(normal.dot(Eigen::Vector3f(0.0f, 0.0f, 1.0f)));
-//         float angle = std::acos(dot) * 180.0f / static_cast<float>(M_PI);
+    pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
+    ne.compute(*normals);
 
-//         // Create a colored point with the original coordinates.
-//         pcl::PointXYZRGB colored_point;
-//         colored_point.x = pt.x;
-//         colored_point.y = pt.y;
-//         colored_point.z = pt.z;
+    // For each point, calculate the angle between its normal and the vertical vector (0,0,1).
+    // A point is considered an inlier (flat region) if the angle (in degrees) is less than angle_threshold.
+    for (size_t i = 0; i < result.downsampled_cloud->points.size(); ++i) {
+        // Ensure the normal is valid.
+        pcl::Normal n = normals->points[i];
+        if (!std::isfinite(n.normal_x) || !std::isfinite(n.normal_y) || !std::isfinite(n.normal_z)) {
+            // Add invalid normals to outliers.
+            result.outlier_cloud->points.push_back(result.downsampled_cloud->points[i]);
+            continue;
+        }
+        // The vertical vector is (0, 0, 1). Dot product is simply n.normal_z (if normals are unit length).
+        double angle_rad = std::acos(n.normal_z);
+        double angle_deg = angle_rad * 180.0 / M_PI;
+        
+        if (angle_deg <= angle_threshold) {
+            // If the slope (angle from vertical) is below the threshold, consider this point as inlier.
+            result.inlier_cloud->points.push_back(result.downsampled_cloud->points[i]);
+        } else {
+            result.outlier_cloud->points.push_back(result.downsampled_cloud->points[i]);
+        }
+    }
 
-//         if (angle <= slope_threshold)
-//         {
-//             // Inlier (slope is below the threshold): color it green.
-//             colored_point.r = 0;
-//             colored_point.g = 255;
-//             colored_point.b = 0;
-//             inliers->push_back(colored_point);
-//         }
-//         else
-//         {
-//             // Outlier (slope exceeds the threshold): color it red.
-//             colored_point.r = 255;
-//             colored_point.g = 0;
-//             colored_point.b = 0;
-//             outliers->push_back(colored_point);
-//         }
-//     }
+    std::cout << "Inlier (flat) cloud has " << result.inlier_cloud->points.size() << " points." << std::endl;
+    std::cout << "Outlier cloud has " << result.outlier_cloud->points.size() << " points." << std::endl;
 
-//     return std::make_pair(inliers, outliers);
-// }
-
-// // Function to visualize the classified point clouds.
-// void visualizeClassifiedCloud(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr &inliers,
-//                               const pcl::PointCloud<pcl::PointXYZRGB>::Ptr &outliers)
-// {
-//     pcl::visualization::PCLVisualizer viewer("Classified Cloud Viewer");
-//     viewer.setBackgroundColor(0.0, 0.0, 0.0);
-
-//     // Add inliers (green) to the viewer.
-//     pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> inlier_color(inliers);
-//     viewer.addPointCloud<pcl::PointXYZRGB>(inliers, inlier_color, "inliers");
-//     viewer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "inliers");
-
-//     // Add outliers (red) to the viewer.
-//     pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> outlier_color(outliers);
-//     viewer.addPointCloud<pcl::PointXYZRGB>(outliers, outlier_color, "outliers");
-//     viewer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "outliers");
-
-//     while (!viewer.wasStopped())
-//     {
-//         viewer.spinOnce();
-//     }
-// }
-
-
-// Region growing segmentation function.
-// Parameters:
-//   file_path      : path to the PCD file (modify this string as needed)
-//   voxel_leaf    : voxel grid leaf size for downsampling
-// Returns:
-//   A RegionGrowingSegmentationResult structure containing the downsampled cloud,
-//   the inliers (points in any region), and the outliers.
+    return result;
+}
 
 //===========================================RegionGrowing Segmentation (PCL)=======================================================================
 
@@ -796,6 +784,196 @@ inline PCLResult regionGrowingSegmentation(
   result.outlier_cloud = outliers_cloud;
   result.pcl_method="REGION GROWING SEGMENTATION";
   return result;
+}
+
+
+//===============================Calculate Roughness (PCL)====================================================================================
+// Function to calculate roughness based on the PROSAC segmentation result.
+// The function computes the roughness from the downsampled cloud using the plane coefficients.
+inline double calculateRoughnessPCL(const PCLResult &result)
+{
+  if (result.plane_coefficients->values.size() < 4 || result.inlier_cloud->points.empty())
+  {
+    std::cerr << "Invalid plane coefficients or empty inlier cloud. Cannot compute roughness." << std::endl;
+    return -1.0;
+  }
+  
+  // Extract plane parameters (ax + by + cz + d = 0).
+  double a = result.plane_coefficients->values[0];
+  double b = result.plane_coefficients->values[1];
+  double c = result.plane_coefficients->values[2];
+  double d = result.plane_coefficients->values[3];
+  double norm = std::sqrt(a * a + b * b + c * c);
+  
+  double sum_squared = 0.0;
+  size_t N = result.inlier_cloud->points.size();
+  
+  for (const auto &pt : result.inlier_cloud->points)
+  {
+    double distance = std::abs(a * pt.x + b * pt.y + c * pt.z + d) / norm;
+    sum_squared += distance * distance;
+  }
+  
+  return std::sqrt(sum_squared / static_cast<double>(N));
+}
+//===============================Calculate Roughness (OPEN3D)============================================================
+
+inline double calculateRoughnessOpen3D(const OPEN3DResult &result)
+{
+    if (!result.inlier_cloud || result.inlier_cloud->points_.empty()) {
+        std::cerr << "Error: Inlier cloud is empty." << std::endl;
+        return -1.0;
+    }
+
+    // Unpack plane parameters: ax + by + cz + d = 0.
+    double a = result.plane_model[0];
+    double b = result.plane_model[1];
+    double c = result.plane_model[2];
+    double d = result.plane_model[3];
+    double norm = std::sqrt(a*a + b*b + c*c);
+
+    double sum_squared = 0.0;
+    size_t N = result.inlier_cloud->points_.size();
+
+    for (const auto &pt : result.inlier_cloud->points_) {
+        double distance = std::abs(a * pt(0) + b * pt(1) + c * pt(2) + d) / norm;
+        sum_squared += distance * distance;
+    }
+    
+    return std::sqrt(sum_squared / static_cast<double>(N));
+}
+
+
+//=============================Calculate Relief (OPEN3D)==========================================================================
+
+inline double calculateReliefOpen3D(const OPEN3DResult &result)
+{
+    if (!result.inlier_cloud || result.inlier_cloud->points_.empty()) {
+        std::cerr << "Error: Inlier cloud is empty." << std::endl;
+        return -1.0;
+    }
+
+    double z_min = std::numeric_limits<double>::max();
+    double z_max = std::numeric_limits<double>::lowest();
+
+    // Iterate through inlier points and find min and max z values.
+    for (const auto &pt : result.inlier_cloud->points_) {
+        double z = pt(2);
+        if (z < z_min) z_min = z;
+        if (z > z_max) z_max = z;
+    }
+    
+    return z_max - z_min;
+}
+
+
+//=============================Calculate Relief (PCL)==========================================================================
+// Calculate relief from the inlier cloud (safe landing zone).
+inline double calculateReliefPCL(const PCLResult &result)
+{
+    if (!result.inlier_cloud || result.inlier_cloud->points.empty()) {
+        std::cerr << "Error: Inlier cloud is empty." << std::endl;
+        return -1.0;
+    }
+
+    double z_min = std::numeric_limits<double>::max();
+    double z_max = std::numeric_limits<double>::lowest();
+
+    // Iterate through inlier points and compute min and max z values.
+    for (const auto &pt : result.inlier_cloud->points) {
+        double z = pt.z;
+        if (z < z_min) z_min = z;
+        if (z > z_max) z_max = z;
+    }
+    
+    return z_max - z_min;
+}
+
+//=============================Calculate Data Confidence (OPEN3D)==========================================================================
+
+// Calculate data confidence for Open3DResult.
+// It computes the convex hull of the inlier cloud and returns N (number of points)
+// divided by the convex hull area.
+inline double calculateDataConfidenceOpen3D(const OPEN3DResult &result)
+{
+    if (!result.inlier_cloud || result.inlier_cloud->points_.empty()) {
+        std::cerr << "Error: Inlier cloud is empty." << std::endl;
+        return -1.0;
+    }
+    
+    size_t N = result.inlier_cloud->points_.size();
+
+    // Compute convex hull of the inlier cloud.
+    std::shared_ptr<open3d::geometry::TriangleMesh> hull_mesh;
+    std::vector<size_t> hull_indices;
+    std::tie(hull_mesh, hull_indices) = result.inlier_cloud->ComputeConvexHull();
+
+    if (!hull_mesh) {
+        std::cerr << "Error: Convex hull computation failed." << std::endl;
+        return -1.0;
+    }
+    
+    double area = hull_mesh->GetSurfaceArea();
+    if (area <= 0.0) {
+        std::cerr << "Error: Computed hull area is non-positive." << std::endl;
+        return -1.0;
+    }
+    
+    double data_confidence = static_cast<double>(N) / area;
+    return data_confidence;
+}
+
+
+
+//=============================Calculate Data Confidence (PCL)=======================================================================
+// Calculate data confidence for PCLResult.
+// It computes the 2D convex hull (projecting the inlier cloud) and returns N divided by the hull area.
+inline double calculateDataConfidencePCL(const PCLResult &result)
+{
+    if (!result.inlier_cloud || result.inlier_cloud->points.empty()) {
+        std::cerr << "Error: Inlier cloud is empty." << std::endl;
+        return -1.0;
+    }
+
+    size_t N = result.inlier_cloud->points.size();
+    
+    // Compute the convex hull of the inlier cloud projected onto a plane.
+    pcl::ConvexHull<PointT> chull;
+    chull.setInputCloud(result.inlier_cloud);
+    chull.setDimension(2);
+    
+    PointCloudT::Ptr hull_points(new PointCloudT);
+    std::vector<pcl::Vertices> polygons;
+    chull.reconstruct(*hull_points, polygons);
+    
+    if (polygons.empty() || hull_points->points.empty()) {
+        std::cerr << "Error: Convex hull could not be computed." << std::endl;
+        return -1.0;
+    }
+    
+    // Compute the area of the first polygon using the shoelace formula.
+    double area = 0.0;
+    const std::vector<int> &indices = polygons[0].vertices;
+    size_t n = indices.size();
+    if (n < 3) {
+        std::cerr << "Error: Convex hull does not have enough points to form an area." << std::endl;
+        return -1.0;
+    }
+    
+    for (size_t i = 0; i < n; i++) {
+        const auto &p1 = hull_points->points[indices[i]];
+        const auto &p2 = hull_points->points[indices[(i + 1) % n]];
+        area += (p1.x * p2.y - p2.x * p1.y);
+    }
+    area = std::abs(area) / 2.0;
+    
+    if (area <= 0.0) {
+        std::cerr << "Error: Computed hull area is non-positive." << std::endl;
+        return -1.0;
+    }
+    
+    double data_confidence = static_cast<double>(N) / area;
+    return data_confidence;
 }
 
 #endif 

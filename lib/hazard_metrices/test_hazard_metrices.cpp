@@ -12,7 +12,26 @@ static const std::string file_path = "/home/airsim_user/Landing-Assist-Module-LA
 //--------------------------------------------------------------------------
 // Test 1: PCA / Normal Estimation / Classification (PCL)
 //--------------------------------------------------------------------------
+TEST(HazardMetricesTest, TestPCA_NormalEstimation) {
+    float voxel_size = 0.15f;
+    float slope_threshold = 20.0f;
+    int k = 10;
+    // Call the PCA-based classification function.
+    PCLResult result =  PrincipleComponentAnalysis<PointT>(file_path,
+                                                               voxel_size,
+                                                               slope_threshold,
+                                                               k);
+    if (!g_skipVisualization) {
+        // Visualize the result; press 'q' to close the viewer.
+        visualizePCL(result);
+    } else {
 
+        std::cout << "[TestPCA_NormalEstimation] Inliers: " << result.inlier_cloud->size()  << ", Outliers: " << result.outlier_cloud->size() << std::endl;
+    }
+    // Check that some points have been classified.
+    EXPECT_GT(result.inlier_cloud->size() + result.outlier_cloud->size(), 0);
+
+}
 //--------------------------------------------------------------------------
 // Test 2: Open3D-Based RANSAC Segmentation
 //-------------------------------------------------------------------------- 
@@ -141,6 +160,125 @@ TEST(HazardMetricesTest, TestRegionGrowing) {
     // Check that some inliers are detected.
     EXPECT_GT(result.inlier_cloud->size(), 0);
 }
+
+
+//--------------------------------------------------------------------------
+// Test 8: Calculate Roughness (PCL-Based)
+//--------------------------------------------------------------------------
+TEST(HazardMetricesTest, TestRoughnessPCL) {
+    float voxel_size = 0.15f;
+    float distanceThreshold = 1.9f;
+    int maxIterations = 200;
+
+    // Perform PROSAC segmentation (PCL-based)
+    PCLResult result = performPROSAC(file_path, voxel_size, distanceThreshold, maxIterations);
+
+    // Calculate roughness using the PCL-based method.
+    double roughness = calculateRoughnessPCL(result);
+    std::cout << "[TestRoughnessPCL] Roughness of the point cloud: " << roughness << std::endl;
+    
+    // Verify that a valid roughness value was calculated.
+    EXPECT_GE(roughness, 0);
+}
+
+//--------------------------------------------------------------------------
+// Test 9: Calculate Roughness (Open3D-Based)
+//--------------------------------------------------------------------------
+TEST(HazardMetricesTest, TestRoughnessOpen3D) {
+    double voxel_size = 0.1;
+    double distance_threshold = 1.9;
+    int ransac_n = 3;
+    int num_iterations = 1000;
+
+    // Perform RANSAC segmentation (Open3D-based)
+    OPEN3DResult segmentation_result = RansacPlaneSegmentation(file_path, voxel_size, distance_threshold, ransac_n, num_iterations);
+
+    // Calculate roughness using the Open3D-based method.
+    double roughness = calculateRoughnessOpen3D(segmentation_result);
+    std::cout << "[TestRoughnessOpen3D] Roughness of the safe landing zone: " << roughness << std::endl;
+    
+    // Verify that a valid roughness value was calculated.
+    EXPECT_GE(roughness, 0);
+}
+
+//--------------------------------------------------------------------------
+// Test 10: Calculate Relief (PCL-Based)
+//--------------------------------------------------------------------------
+TEST(HazardMetricesTest, TestReliefPCL) {
+    float voxel_size = 0.15f;
+    float distanceThreshold = 1.9f;
+    int maxIterations = 200;
+
+    // Perform PROSAC segmentation (PCL-based)
+    PCLResult result = performPROSAC(file_path, voxel_size, distanceThreshold, maxIterations);
+
+    // Calculate relief using the PCL-based method.
+    double relief = calculateReliefPCL(result);
+    std::cout << "[TestReliefPCL] Relief of the landing zone (PCL-based): " << relief << std::endl;
+    
+    // Verify that a valid relief value was calculated.
+    EXPECT_GE(relief, 0);
+}
+
+//--------------------------------------------------------------------------
+// Test 11: Calculate Relief (Open3D-Based)
+//--------------------------------------------------------------------------
+TEST(HazardMetricesTest, TestReliefOpen3D) {
+    double voxel_size = 0.1;
+    double distance_threshold = 1.9;
+    int ransac_n = 3;
+    int num_iterations = 1000;
+
+    // Perform RANSAC segmentation (Open3D-based)
+    OPEN3DResult segmentation_result = RansacPlaneSegmentation(file_path, voxel_size, distance_threshold, ransac_n, num_iterations);
+
+    // Calculate relief using the Open3D-based method.
+    double relief = calculateReliefOpen3D(segmentation_result);
+    std::cout << "[TestReliefOpen3D] Relief of the safe landing zone (Open3D-based): " << relief << std::endl;
+    
+    // Verify that a valid relief value was calculated.
+    EXPECT_GE(relief, 0);
+}
+
+//--------------------------------------------------------------------------
+// Test 12: Calculate Data Confidence (PCL-Based)
+//--------------------------------------------------------------------------
+TEST(HazardMetricesTest, TestDataConfidencePCL) {
+    float voxel_size = 0.15f;
+    float distanceThreshold = 1.9f;
+    int maxIterations = 200;
+
+    // Perform PROSAC segmentation (PCL-based)
+    PCLResult result = performPROSAC(file_path, voxel_size, distanceThreshold, maxIterations);
+
+    // Calculate data confidence using the PCL-based method.
+    double data_confidence = calculateDataConfidencePCL(result);
+    std::cout << "[TestDataConfidencePCL] Data confidence (PCL-based): " << data_confidence << std::endl;
+    
+    // Verify that a valid data confidence value was calculated.
+    EXPECT_GE(data_confidence, 0);
+}
+
+//--------------------------------------------------------------------------
+// Test 13: Calculate Data Confidence (Open3D-Based)
+//--------------------------------------------------------------------------
+TEST(HazardMetricesTest, TestDataConfidenceOpen3D) {
+    double voxel_size = 0.01;
+    double distance_threshold = 1.9;
+    int ransac_n = 3;
+    int num_iterations = 1000;
+
+    // Perform RANSAC segmentation (Open3D-based)
+    OPEN3DResult segmentation_result = RansacPlaneSegmentation(file_path, voxel_size, distance_threshold, ransac_n, num_iterations);
+
+    // Calculate data confidence using the Open3D-based method.
+    double data_confidence = calculateDataConfidenceOpen3D(segmentation_result);
+    std::cout << "[TestDataConfidenceOpen3D] Data confidence (Open3D-based): " << data_confidence << std::endl;
+    
+    // Verify that a valid data confidence value was calculated.
+    EXPECT_GE(data_confidence, 0);
+}
+
 
 //--------------------------------------------------------------------------
 // main() for Google Test
