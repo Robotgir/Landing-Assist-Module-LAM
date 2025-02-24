@@ -11,15 +11,15 @@ int main(int argc, char **argv)
 
     {
 
-        float voxel_size =0.15f;
-        float slope_threshold = 20.0f;
+        float voxel_size =0.35f;
+        float slope_threshold = 5.0f;
         int k =10;
         
       // Get classification results including the downsampled point cloud.
-        PCLResult result = PrincipleComponentAnalysis<PointT>(file_path,    
-                                                              voxel_size ,
-                                                              slope_threshold,  // slope threshold
-                                                              k);    // k-nearest neighbors
+        PCLResult result = PrincipleComponentAnalysis(file_path,    
+                                                      voxel_size ,
+                                                      slope_threshold,  // slope threshold
+                                                      k);    // k-nearest neighbors
 
       // Use the stored downsampled point cloud in the visualization function.
         visualizePCL(result);

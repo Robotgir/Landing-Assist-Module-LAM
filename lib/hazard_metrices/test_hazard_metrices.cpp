@@ -13,14 +13,14 @@ static const std::string file_path = "/home/airsim_user/Landing-Assist-Module-LA
 // Test 1: PCA / Normal Estimation / Classification (PCL)
 //--------------------------------------------------------------------------
 TEST(HazardMetricesTest, TestPCA_NormalEstimation) {
-    float voxel_size = 0.15f;
-    float slope_threshold = 20.0f;
+    float voxel_size = 0.35f;
+    float slope_threshold = 5.0f;
     int k = 10;
     // Call the PCA-based classification function.
-    PCLResult result =  PrincipleComponentAnalysis<PointT>(file_path,
-                                                               voxel_size,
-                                                               slope_threshold,
-                                                               k);
+    PCLResult result =  PrincipleComponentAnalysis(file_path,
+                                                    voxel_size,
+                                                    slope_threshold,
+                                                    k);
     if (!g_skipVisualization) {
         // Visualize the result; press 'q' to close the viewer.
         visualizePCL(result);
