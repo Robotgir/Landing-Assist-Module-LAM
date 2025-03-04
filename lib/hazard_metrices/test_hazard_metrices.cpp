@@ -144,7 +144,32 @@ TEST(HazardMetricesTest, TestLMEDS) {
 }
 
 //--------------------------------------------------------------------------
-// Test 7: Region Growing Segmentation (PCL-Based)
+// Test 7: Average 3d Gradient (PCL-Based)
+//--------------------------------------------------------------------------
+
+TEST(HazardMetricesTest, TestAverage3DGradient) {
+    // Set default values for parameters.
+    float voxelSize = 0.1f;
+    float neighborRadius = 0.5f;
+    float gradientThreshold = 0.15f;
+
+    // Call the Average3DGradient flatness detection function.
+    PCLResult result = Average3DGradient(file_path, voxelSize, neighborRadius, gradientThreshold);
+
+    if (!g_skipVisualization) {
+        // Visualize the result using visualizePCL, with "inlier_cloud" tag.
+        visualizePCL(result);
+    } else {
+        std::cout << "[TestAverage3DGradient] Inliers: " << result.inlier_cloud->size() 
+                  << ", Outliers: " << result.outlier_cloud->size() << std::endl;
+    }
+    // Ensure that some points have been classified.
+    EXPECT_GT(result.inlier_cloud->size() + result.outlier_cloud->size(), 0);
+}
+
+
+//--------------------------------------------------------------------------
+// Test 8: Region Growing Segmentation (PCL-Based)
 //--------------------------------------------------------------------------
 TEST(HazardMetricesTest, TestRegionGrowing) {
     double voxel_size = 0.45;
@@ -163,7 +188,7 @@ TEST(HazardMetricesTest, TestRegionGrowing) {
 
 
 //--------------------------------------------------------------------------
-// Test 8: Calculate Roughness (PCL-Based)
+// Test 9: Calculate Roughness (PCL-Based)
 //--------------------------------------------------------------------------
 TEST(HazardMetricesTest, TestRoughnessPCL) {
     float voxel_size = 0.15f;
@@ -182,7 +207,7 @@ TEST(HazardMetricesTest, TestRoughnessPCL) {
 }
 
 //--------------------------------------------------------------------------
-// Test 9: Calculate Roughness (Open3D-Based)
+// Test 10: Calculate Roughness (Open3D-Based)
 //--------------------------------------------------------------------------
 TEST(HazardMetricesTest, TestRoughnessOpen3D) {
     double voxel_size = 0.1;
@@ -202,7 +227,7 @@ TEST(HazardMetricesTest, TestRoughnessOpen3D) {
 }
 
 //--------------------------------------------------------------------------
-// Test 10: Calculate Relief (PCL-Based)
+// Test 11: Calculate Relief (PCL-Based)
 //--------------------------------------------------------------------------
 TEST(HazardMetricesTest, TestReliefPCL) {
     float voxel_size = 0.15f;
@@ -221,7 +246,7 @@ TEST(HazardMetricesTest, TestReliefPCL) {
 }
 
 //--------------------------------------------------------------------------
-// Test 11: Calculate Relief (Open3D-Based)
+// Test 12: Calculate Relief (Open3D-Based)
 //--------------------------------------------------------------------------
 TEST(HazardMetricesTest, TestReliefOpen3D) {
     double voxel_size = 0.1;
@@ -241,7 +266,7 @@ TEST(HazardMetricesTest, TestReliefOpen3D) {
 }
 
 //--------------------------------------------------------------------------
-// Test 12: Calculate Data Confidence (PCL-Based)
+// Test 13: Calculate Data Confidence (PCL-Based)
 //--------------------------------------------------------------------------
 TEST(HazardMetricesTest, TestDataConfidencePCL) {
     float voxel_size = 0.15f;
@@ -260,7 +285,7 @@ TEST(HazardMetricesTest, TestDataConfidencePCL) {
 }
 
 //--------------------------------------------------------------------------
-// Test 13: Calculate Data Confidence (Open3D-Based)
+// Test 14: Calculate Data Confidence (Open3D-Based)
 //--------------------------------------------------------------------------
 TEST(HazardMetricesTest, TestDataConfidenceOpen3D) {
     double voxel_size = 0.01;

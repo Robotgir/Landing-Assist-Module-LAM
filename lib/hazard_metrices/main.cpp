@@ -1,4 +1,5 @@
 #include "hazard_metrices.h"
+#include "pointcloud_preprocessing.h"
 
 int main(int argc, char **argv)
 {
@@ -26,9 +27,9 @@ int main(int argc, char **argv)
 
     }
 
-    // //======================================================
-    // // Block 2: Open3D-Based RANSAC Segmentation TESTED
-    // //======================================================
+    //======================================================
+    // Block 2: Open3D-Based RANSAC Segmentation 
+    //======================================================
 
     {
       // Parameters for downsampling and RANSAC.
@@ -46,9 +47,9 @@ int main(int argc, char **argv)
       VisualizeOPEN3D(result);
     }
 
-    // //======================================================
-    // // Block 3: PCL-Based RANSAC Segmentation TESTED
-    // //======================================================
+    //======================================================
+    // Block 3: PCL-Based RANSAC Segmentation 
+    //======================================================
 
     {
         float voxelSize = 0.15f;
@@ -56,13 +57,13 @@ int main(int argc, char **argv)
         int maxIterations = 1000;
 
         PCLResult result = performRANSAC(file_path, voxelSize, distanceThreshold, maxIterations);
-        visualizePCL(result);
+        visualizePCL(result,"inlier_cloud");
         
     }
 
-    // //======================================================
-    // // Block 4: PROSAC Segmentation (PCL-Based) TESTED
-    // //======================================================
+    //======================================================
+    // Block 4: PROSAC Segmentation (PCL-Based) 
+    //======================================================
 
     {
         float voxel_size =0.15f;
@@ -70,12 +71,12 @@ int main(int argc, char **argv)
         int maxIterations = 200;
 
         PCLResult result = performPROSAC(file_path, voxel_size, distanceThreshold,maxIterations);
-        visualizePCL(result);
+        visualizePCL(result,"inlier_cloud");
     }
 
-    // //===========================================================
-    // // Block 5: Least Squares Plane Fitting (OPEN3D-Based) TESTED
-    // //===========================================================
+    //===========================================================
+    // Block 5: Least Squares Plane Fitting (OPEN3D-Based)
+    //===========================================================
 
        {
 
@@ -89,9 +90,9 @@ int main(int argc, char **argv)
   
        }
 
-    // //===============================================================
-    // // Block 6: Least of Median Squares Plane Fitting (PCL-Based) TESTED
-    // //===============================================================
+    //==================================================================
+    // Block 6: Least of Median Squares Plane Fitting (PCL-Based) 
+    //==================================================================
 
       {
         float voxelSize = 0.15f;
@@ -105,33 +106,40 @@ int main(int argc, char **argv)
         // Visualize the result.
         visualizePCL(result);
       }
-    //===============================================================
+    // ===============================================================
     // Block 7: Average 3d Gradients (PCL-Based) not completed
-    //===============================================================
+    // ===============================================================
 
       {
-        double angle_threshold = 10.0;
-        double voxel_size = 0.1;
 
-        PCLResult result = Average3DGradientSegmentation(file_path, angle_threshold, voxel_size);
-        visualizePCL(result);
+        // Set default values for parameters
+        float voxelSize = 0.1f;
+        float neighborRadius = 0.5f;
+        float gradientThreshold = 0.15f;
+
+    
+
+        // Call the flatness detection function
+        PCLResult result = Average3DGradient(file_path, voxelSize, neighborRadius, gradientThreshold);
+        visualizePCL(result,"inlier_cloud");
+
 
       }
 
-    //===============================================================
-    // Block 8: Region growing segmentation (PCL-Based) TESTED
-    //===============================================================
+    // ===============================================================
+    // Block 8: Region growing segmentation (PCL-Based) 
+    // ===============================================================
 
       {
         double voxel_size = 0.45;
     
         PCLResult result = regionGrowingSegmentation(file_path, voxel_size);
-        visualizePCL(result);
+        visualizePCL(result,"inlier_cloud");
       
       }
     
     //===============================================================
-    // Block 9: Calculate Roughness (PCL-Based) TESTED
+    // Block 9: Calculate Roughness (PCL-Based) 
     //===============================================================
 
     { 
@@ -151,7 +159,7 @@ int main(int argc, char **argv)
     }
 
     //===============================================================
-    // Block 10: Calculate Roughness (OPEN3D-Based) TESTED
+    // Block 10: Calculate Roughness (OPEN3D-Based) 
     //===============================================================
 
      {
@@ -173,7 +181,7 @@ int main(int argc, char **argv)
      }
 
     //===============================================================
-    // Block 11: Calculate Relief (PCL-Based) TESTED
+    // Block 11: Calculate Relief (PCL-Based) 
     //===============================================================
 
     {
@@ -194,7 +202,7 @@ int main(int argc, char **argv)
 
 
     //===============================================================
-    // Block 12: Calculate Relief (OPEN3D-Based) TESTED
+    // Block 12: Calculate Relief (OPEN3D-Based) 
     //===============================================================
 
     {
@@ -214,7 +222,7 @@ int main(int argc, char **argv)
     }
 
     // ===============================================================
-    // Block 13: Calculate Data Confidence (PCL-Based) TESTED
+    // Block 13: Calculate Data Confidence (PCL-Based) 
     // ===============================================================
 
     {
@@ -235,7 +243,7 @@ int main(int argc, char **argv)
 
 
     // ===============================================================
-    // Block 14: Calculate Data Confidence (OPEN3D-Based) TESTED
+    // Block 14: Calculate Data Confidence (OPEN3D-Based) 
     // ===============================================================
 
     {
@@ -253,6 +261,8 @@ int main(int argc, char **argv)
       std::cout << "Stored plane model: " << segmentation_result.plane_model.transpose() << std::endl;
       std::cout << "data confidence of the safe landing zone open3d based : " << data_confidence<< std::endl;
     }
+
+    
 
     return 0;
 }

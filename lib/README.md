@@ -129,9 +129,13 @@ This project requires:
 ## RUNNING THE TEST
  For running test_hazard_metrices with visualization you need to run the following command
    ./test_hazard_metrices 
- WIthout visualization you need to run the following command 
+
+ Without visualization you need to run the following command 
     ./test_hazard_metrices --no-vis 
     or change line 7 bool g_skipVisualization = false; to bool g_skipVisualization = true;
+
+ For running specific test for eg :PROSAC you can run it with 
+   ./test_hazard_metrices --gtest_filter=HazardMetricesTest.TestPROSAC
 
  1. Principal Component Analysis
     Function name : PCLResult PrincipleComponentAnalysis(const std::string& file_path,
