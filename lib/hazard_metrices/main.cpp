@@ -116,11 +116,12 @@ int main(int argc, char **argv)
         float voxelSize = 0.1f;
         float neighborRadius = 0.5f;
         float gradientThreshold = 0.15f;
+        float angleThreshold = 10.0f;
 
     
 
         // Call the flatness detection function
-        PCLResult result = Average3DGradient(file_path, voxelSize, neighborRadius, gradientThreshold);
+        PCLResult result = Average3DGradient(file_path, voxelSize, neighborRadius, gradientThreshold, angleThreshold);
         visualizePCL(result,"inlier_cloud");
 
 

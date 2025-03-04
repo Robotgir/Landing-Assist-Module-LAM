@@ -582,11 +582,11 @@ inline PCLResult performLMEDS(const std::string &file_path,
 
 //===========================================Average 3D Gradient (PCL)=======================================================================
 
-
 PCLResult Average3DGradient(const std::string &file_path,
   float voxelSize,
   float neighborRadius,
-  float gradientThreshold)
+  float gradientThreshold,
+  float angleThreshold)
 {
 // Initialize the result struct.
 PCLResult result;
@@ -607,34 +607,38 @@ result.downsampled_cloud.reset(new PointCloudT);
 downsamplePointCloudPCL<pcl::PointXYZ>(cloud, result.downsampled_cloud, voxelSize);
 std::cout << "After voxel downsampling: " << result.downsampled_cloud->points.size() << " points." << std::endl;
 
-// Build a KD–tree for neighbor search.
+// Build a KD-tree for neighbor search.
 pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;
 kdtree.setInputCloud(result.downsampled_cloud);
+size_t numPoints = result.downsampled_cloud->points.size();
 
-// Container to mark each point if it is considered flat.
-std::vector<bool> isFlat(result.downsampled_cloud->points.size(), false);
-std::vector<float> avgGradients(result.downsampled_cloud->points.size(), 0.0f);
+// Create vectors to store classification result.
+std::vector<bool> isFlat(numPoints, false);
+std::vector<float> avgGradients(numPoints, 0.0f);
 
-// For each point, compute the average gradient in its neighborhood.
-for (size_t i = 0; i < result.downsampled_cloud->points.size(); i++) {
+// Loop over all points.
+for (size_t i = 0; i < numPoints; i++) {
+// Local vectors for neighbor search.
 std::vector<int> neighborIndices;
 std::vector<float> neighborDistances;
+neighborIndices.reserve(32);
+neighborDistances.reserve(32);
+
 const pcl::PointXYZ &searchPoint = result.downsampled_cloud->points[i];
 
 // Find neighbors within the specified radius.
-if (kdtree.radiusSearch(searchPoint, neighborRadius, neighborIndices, neighborDistances) > 3) {
+int found = kdtree.radiusSearch(searchPoint, neighborRadius, neighborIndices, neighborDistances);
+if (found > 3) {
 float sumGradient = 0.0f;
 int count = 0;
 for (size_t j = 0; j < neighborIndices.size(); j++) {
 if (neighborIndices[j] == i)
 continue;
-// Compute differences.
 float dx = result.downsampled_cloud->points[neighborIndices[j]].x - searchPoint.x;
 float dy = result.downsampled_cloud->points[neighborIndices[j]].y - searchPoint.y;
 float dz = result.downsampled_cloud->points[neighborIndices[j]].z - searchPoint.z;
 float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
 if (distance > 0) {
-// Use absolute z difference over Euclidean distance as a proxy for local gradient.
 float grad = std::fabs(dz) / distance;
 sumGradient += grad;
 count++;
@@ -642,18 +646,20 @@ count++;
 }
 float avgGradient = (count > 0) ? (sumGradient / count) : std::numeric_limits<float>::infinity();
 avgGradients[i] = avgGradient;
-if (avgGradient < gradientThreshold)
+// Convert gradient to an angle in degrees.
+float slopeAngle = std::atan(avgGradient) * (180.0f / M_PI);
+// Classify point as flat if both conditions are met.
+if (avgGradient < gradientThreshold && slopeAngle < angleThreshold)
 isFlat[i] = true;
 } else {
-// Not enough neighbors, mark as not flat.
 isFlat[i] = false;
 }
-}
+} // end loop
 
-// Partition the points into inliers and outliers based on flatness.
+// Partition points into inliers and outliers.
 result.inlier_cloud.reset(new PointCloudT);
 result.outlier_cloud.reset(new PointCloudT);
-for (size_t i = 0; i < result.downsampled_cloud->points.size(); i++) {
+for (size_t i = 0; i < numPoints; i++) {
 if (isFlat[i])
 result.inlier_cloud->points.push_back(result.downsampled_cloud->points[i]);
 else
@@ -664,11 +670,8 @@ result.inlier_cloud->height = 1;
 result.outlier_cloud->width = result.outlier_cloud->points.size();
 result.outlier_cloud->height = 1;
 
-// Since this method does not compute an explicit plane model,
-// plane_coefficients remains empty.
 return result;
 }
-
 
 //===========================================RegionGrowing Segmentation (PCL)=======================================================================
 

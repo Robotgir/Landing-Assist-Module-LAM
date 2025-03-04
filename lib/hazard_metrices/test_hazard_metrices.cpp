@@ -152,9 +152,10 @@ TEST(HazardMetricesTest, TestAverage3DGradient) {
     float voxelSize = 0.1f;
     float neighborRadius = 0.5f;
     float gradientThreshold = 0.15f;
+    float angleThreshold = 10.0f;
 
     // Call the Average3DGradient flatness detection function.
-    PCLResult result = Average3DGradient(file_path, voxelSize, neighborRadius, gradientThreshold);
+    PCLResult result = Average3DGradient(file_path, voxelSize, neighborRadius, gradientThreshold, angleThreshold);
 
     if (!g_skipVisualization) {
         // Visualize the result using visualizePCL, with "inlier_cloud" tag.
