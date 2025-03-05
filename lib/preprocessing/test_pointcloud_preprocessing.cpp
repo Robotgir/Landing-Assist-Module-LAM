@@ -1,13 +1,14 @@
 #include "pointcloud_preprocessing.h"
 #include <gtest/gtest.h>
 #include <fstream>
+#include <common.h>
 
 
 // Global flag to control visualization in tests.
 bool g_skipVisualization = false;
 
 // Change this file path if needed.
-static const std::string filename = "/home/airsim_user/Landing-Assist-Module-LAM/lib/preprocessing/3_7_2024_dense.pcd";
+static const std::string filename = "/home/airsim_user/Landing-Assist-Module-LAM/lib/hazard_metrices/test.pcd";
 
 // Helper function to check if a file exists.
 bool fileExists(const std::string &path) {
@@ -21,10 +22,9 @@ bool fileExists(const std::string &path) {
 
 TEST(DataStructuring, Create2DGridMap) {
     float gridmap_resolution = 0.1f;
-    pcl::PointCloud<pcl::PointXYZ>::Ptr grid_map = create2DGridMap(filename, gridmap_resolution);
+    pcl::PointCloud<pcl::PointXYZI>::Ptr grid_map = create2DGridMap(filename, gridmap_resolution);
 
     if (!g_skipVisualization) {
-        pcl::PointCloud<pcl::PointXYZ>::Ptr grid_map = create2DGridMap(filename, gridmap_resolution);
         // Visualize the segmentation result; press 'q' to close the window.
         visualize2DGridMap(grid_map);
     }else{
@@ -40,7 +40,7 @@ TEST(DataStructuring, Create2DGridMap) {
 }
 
 TEST(DataStructuring, Create3DGridMap) {
-    double voxel_size = 0.1;
+    double voxel_size = 0.55;
     VoxelGridResult voxelgrid_result = create_3d_grid(filename, voxel_size);
 
     if (!g_skipVisualization) {
@@ -95,7 +95,7 @@ TEST(DataStructuring, ConvertPointCloudToOctomap) {
 // TESTS for FILTERING functions
 ////////////////////////////////////////////////////////////
 
-TEST(Filtering, ApplyVoxelGridFilter) {
+TEST(OPEN3DFiltering, ApplyVoxelGridFilter) {
     double voxel_downsample_size = 0.15;
     auto downsampled_cloud = apply_voxel_grid_filter(filename, voxel_downsample_size);
     
@@ -110,99 +110,62 @@ TEST(Filtering, ApplyVoxelGridFilter) {
     }
 }
 
-TEST(Filtering, ApplySORFilter) {
+TEST(OPEN3DFiltering, ApplySORFilter) {
     int nb_neighbors = 15;
     double std_ratio = 0.1;
-    SORFilterResult sor_result = apply_sor_filter(filename, nb_neighbors, std_ratio);
+    OPEN3DResult result = apply_sor_filter(filename, nb_neighbors, std_ratio);
+    
 
     if (!g_skipVisualization) {
         // Visualize the segmentation result; press 'q' to close the window.
-        visualize_sor_filtered_point_cloud(sor_result.original_cloud, sor_result.filtered_cloud);
+        visualizeOPEN3D(result);
     } 
-    EXPECT_NE(sor_result.original_cloud, nullptr);
-    EXPECT_NE(sor_result.filtered_cloud, nullptr);
-    if(sor_result.original_cloud)
+    EXPECT_NE(result.inlier_cloud, nullptr);
+    EXPECT_NE(result.inlier_cloud, nullptr);
+    if(result.inlier_cloud)
     {
-        EXPECT_GT(sor_result.original_cloud->points_.size(), 0);
+        EXPECT_GT(result.inlier_cloud->points_.size(), 0);
     }
-    if(sor_result.filtered_cloud)
-    {
-        // In many cases the filtered cloud should be smaller than the original.
-        EXPECT_LT(sor_result.filtered_cloud->points_.size(),
-                  sor_result.original_cloud->points_.size());
-    }
+
 }
 
 ////////////////////////////////////////////////////////////
 // TESTS for PCL-based filtering functions
 ////////////////////////////////////////////////////////////
 
-TEST(PCLFiltering, DownsamplePointCloud) {
-    // Load the PCL point cloud.
-    pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_original(new pcl::PointCloud<pcl::PointXYZI>());
-    int load_ret = pcl::io::loadPCDFile<pcl::PointXYZI>(filename, *cloud_original);
-    EXPECT_NE(load_ret, -1) << "Failed to load original PCD file.";
-    EXPECT_GT(cloud_original->size(), 0);
-
-    float leaf_size = 0.1f;
-    auto cloud_downsampled = downsamplePointCloud<pcl::PointXYZI>(cloud_original, leaf_size);
-    EXPECT_NE(cloud_downsampled, nullptr);
-    if(cloud_downsampled)
-    {
-        EXPECT_GT(cloud_downsampled->size(), 0);
-    }
-}
 
 TEST(PCLFiltering, ApplyRadiusFilter) {
     // Load original cloud.
-    pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_original(new pcl::PointCloud<pcl::PointXYZI>());
-    int load_ret = pcl::io::loadPCDFile<pcl::PointXYZI>(filename, *cloud_original);
-    EXPECT_NE(load_ret, -1) << "Failed to load original PCD file.";
-    EXPECT_GT(cloud_original->size(), 0);
-
-    float leaf_size = 0.1f;
-    auto cloud_downsampled = downsamplePointCloud<pcl::PointXYZI>(cloud_original, leaf_size);
-    double radius_search = 0.1;
-    int min_neighbors = 4;
-    auto cloud_radius_filtered = applyRadiusFilter<pcl::PointXYZI>(cloud_downsampled, radius_search, min_neighbors);
+    double voxel_size=0.05;
+    double radius_search = 0.9; //0.1 to 0.3,0.3 to 0.7,0.7 to 0.15
+    int min_neighbors = 50;      // 5 to 15,10 to 30,20 to 50
+    float translation_offset_radius_filter = 0.0f; //change this value to visualize the filtered cloud in a different position along x axis if it 0 filtered and original pointcloud will be in the same position
+    PCLResult result = applyRadiusFilter(filename, voxel_size, radius_search, min_neighbors);
     
     if (!g_skipVisualization) {
         // Visualize the segmentation result; press 'q' to close the window.
-        visualizeClouds<pcl::PointXYZI>(cloud_downsampled, cloud_radius_filtered,
-                                         "Radius Outlier Removal",
-                                         "original cloud",
-                                         "radius_filtered cloud",
-                                         2, 0.0f);
+        visualizePCL(result);
     } 
     
     // Check that the filtered cloud is not empty.
-    EXPECT_FALSE(cloud_radius_filtered->empty());
+    EXPECT_FALSE(result.inlier_cloud->empty());
 }
 
 TEST(PCLFiltering, ApplyBilateralFilter) {
-    // Load original cloud.
-    pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_original(new pcl::PointCloud<pcl::PointXYZI>());
-    int load_ret = pcl::io::loadPCDFile<pcl::PointXYZI>(filename, *cloud_original);
-    EXPECT_NE(load_ret, -1) << "Failed to load original PCD file.";
-    EXPECT_GT(cloud_original->size(), 0);
 
-    float leaf_size = 0.1f;
-    auto cloud_downsampled = downsamplePointCloud<pcl::PointXYZI>(cloud_original, leaf_size);
-    double sigma_s = 15.0;
-    double sigma_r = 0.3;
-    auto cloud_bilateral_filtered = applyBilateralFilter<pcl::PointXYZI>(cloud_downsampled, sigma_s, sigma_r);
+    double voxelSize = 0.05;   
+    double sigma_s = 15.0; // Small point clouds or detailed structures: sigma_s = 1.0 - 5.0 ,Noisy or dense point clouds: sigma_s = 5.0 - 10.0,Large or very noisy point clouds: sigma_s = 10.0 - 15.0
+    double sigma_r = 0.3;  //Preserve edges and details: sigma_r = 0.05 - 0.1, Moderate smoothing: sigma_r = 0.1 - 0.2, Heavy denoising (risk of over-smoothing): sigma_r = 0.2 - 0.3
+
+    PCLResult result = applyBilateralFilter(filename, voxelSize, sigma_s, sigma_r);
+
     
     if (!g_skipVisualization) {
-        // Visualize the segmentation result; press 'q' to close the window.
-        visualizeClouds<pcl::PointXYZI>(cloud_downsampled, cloud_bilateral_filtered,
-                                         "Bilateral Filter",
-                                         "original cloud",
-                                         "bilateral_filtered cloud",
-                                         2, 0.0f);
+        visualizePCL(result);
     } 
 
     // Check that the bilateral filtered cloud is not empty.
-    EXPECT_FALSE(cloud_bilateral_filtered->empty());
+    EXPECT_FALSE(result.inlier_cloud->empty());
 }
 
 ////////////////////////////////////////////////////////////

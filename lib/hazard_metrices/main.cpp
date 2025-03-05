@@ -1,10 +1,10 @@
 #include "hazard_metrices.h"
-#include "pointcloud_preprocessing.h"
+
 
 int main(int argc, char **argv)
 {
     // Input file (same for all blocks)
-    static const std::string file_path = "/home/airsim_user/Landing-Assist-Module-LAM/lib/hazard_metrices/test.pcd";
+    static const std::string filePath = "/home/airsim_user/Landing-Assist-Module-LAM/lib/hazard_metrices/test.pcd";
 
     //=============================================================================================
     //Block 1: PCA / Normal Estimation / Classification (PCL) TESTED BUT SPEED SHOULD BE INCREASED
@@ -12,14 +12,14 @@ int main(int argc, char **argv)
 
     {
 
-        float voxel_size =0.35f;
-        float slope_threshold = 5.0f;
+        float voxelSize =0.35f;
+        float slopeThreshold = 5.0f;
         int k =10;
         
       // Get classification results including the downsampled point cloud.
-        PCLResult result = PrincipleComponentAnalysis(file_path,    
-                                                      voxel_size ,
-                                                      slope_threshold,  // slope threshold
+        PCLResult result = PrincipleComponentAnalysis(filePath,    
+                                                      voxelSize ,
+                                                      slopeThreshold,  // slope threshold
                                                       k);    // k-nearest neighbors
 
       // Use the stored downsampled point cloud in the visualization function.
@@ -33,18 +33,18 @@ int main(int argc, char **argv)
 
     {
       // Parameters for downsampling and RANSAC.
-      double voxel_size = 0.1;          // Example voxel size.
+      double voxelSize = 0.1;          // Example voxel size.
       double distance_threshold = 1.9;   // Threshold for plane segmentation.
       int ransac_n = 3;                  // Number of points to sample for plane fitting.
       int num_iterations = 1000;         // Number of RANSAC iterations.
 
       // Perform RANSAC plane segmentation.
       OPEN3DResult result = RansacPlaneSegmentation(
-          file_path, voxel_size, distance_threshold, ransac_n, num_iterations);
+          filePath, voxelSize, distance_threshold, ransac_n, num_iterations);
 
       // Visualize the segmentation result.
       //VisualizeRansacSegmentationOpen3d(result.inlier_cloud, result.outlier_cloud);
-      VisualizeOPEN3D(result);
+      visualizeOPEN3D(result);
     }
 
     //======================================================
@@ -56,7 +56,7 @@ int main(int argc, char **argv)
         float distanceThreshold = 1.9f;
         int maxIterations = 1000;
 
-        PCLResult result = performRANSAC(file_path, voxelSize, distanceThreshold, maxIterations);
+        PCLResult result = performRANSAC(filePath, voxelSize, distanceThreshold, maxIterations);
         visualizePCL(result,"inlier_cloud");
         
     }
@@ -66,11 +66,11 @@ int main(int argc, char **argv)
     //======================================================
 
     {
-        float voxel_size =0.15f;
+        float voxelSize =0.15f;
         float distanceThreshold = 1.9f;
         int maxIterations = 200;
 
-        PCLResult result = performPROSAC(file_path, voxel_size, distanceThreshold,maxIterations);
+        PCLResult result = performPROSAC(filePath, voxelSize, distanceThreshold,maxIterations);
         visualizePCL(result,"inlier_cloud");
     }
 
@@ -82,11 +82,11 @@ int main(int argc, char **argv)
 
         OPEN3DResult result;
 
-        double voxel_size = 0.15;         // Voxel size for downsampling (adjust as needed)
+        double voxelSize = 0.15;         // Voxel size for downsampling (adjust as needed)
         double distance_threshold = 1.85; // Threshold for inlier classification (in same units as your point cloud)
 
-        result = LeastSquaresPlaneFitting(file_path, voxel_size, distance_threshold);
-        VisualizeOPEN3D(result);
+        result = LeastSquaresPlaneFitting(filePath, voxelSize, distance_threshold);
+        visualizeOPEN3D(result);
   
        }
 
@@ -101,7 +101,7 @@ int main(int argc, char **argv)
 
 
         // Perform plane fitting using LMedS.
-        PCLResult result = performLMEDS(file_path, voxelSize, distanceThreshold,maxIterations);
+        PCLResult result = performLMEDS(filePath, voxelSize, distanceThreshold,maxIterations);
         
         // Visualize the result.
         visualizePCL(result);
@@ -121,7 +121,7 @@ int main(int argc, char **argv)
     
 
         // Call the flatness detection function
-        PCLResult result = Average3DGradient(file_path, voxelSize, neighborRadius, gradientThreshold, angleThreshold);
+        PCLResult result = Average3DGradient(filePath, voxelSize, neighborRadius, gradientThreshold, angleThreshold);
         visualizePCL(result,"inlier_cloud");
 
 
@@ -132,9 +132,9 @@ int main(int argc, char **argv)
     // ===============================================================
 
       {
-        double voxel_size = 0.45;
+        double voxelSize = 0.45;
     
-        PCLResult result = regionGrowingSegmentation(file_path, voxel_size);
+        PCLResult result = regionGrowingSegmentation(filePath, voxelSize);
         visualizePCL(result,"inlier_cloud");
       
       }
@@ -145,12 +145,12 @@ int main(int argc, char **argv)
 
     { 
       // Find the potential plane.
-      float voxel_size =0.15f;
+      float voxelSize =0.15f;
       float distanceThreshold = 1.9f;
       int maxIterations = 200;
 
       
-      PCLResult result = performPROSAC(file_path, voxel_size, distanceThreshold,maxIterations);
+      PCLResult result = performPROSAC(filePath, voxelSize, distanceThreshold,maxIterations);
       
       double roughness = calculateRoughnessPCL(result);
       if (roughness >= 0)
@@ -165,13 +165,13 @@ int main(int argc, char **argv)
 
      {
       
-      double voxel_size = 0.1;
+      double voxelSize = 0.1;
       double distance_threshold = 1.9;
       int ransac_n = 3;
       int num_iterations = 1000;
     
       // Perform RANSAC segmentation.
-      OPEN3DResult segmentation_result = RansacPlaneSegmentation(file_path, voxel_size, distance_threshold, ransac_n, num_iterations);
+      OPEN3DResult segmentation_result = RansacPlaneSegmentation(filePath, voxelSize, distance_threshold, ransac_n, num_iterations);
     
       // Calculate roughness using the inlier cloud and the stored plane model.
       double roughness = calculateRoughnessOpen3D(segmentation_result);
@@ -187,12 +187,12 @@ int main(int argc, char **argv)
 
     {
             // Find the potential plane.
-      float voxel_size =0.15f;
+      float voxelSize =0.15f;
       float distanceThreshold = 1.9f;
       int maxIterations = 200;
 
       
-      PCLResult result = performPROSAC(file_path, voxel_size, distanceThreshold,maxIterations);
+      PCLResult result = performPROSAC(filePath, voxelSize, distanceThreshold,maxIterations);
       
       double relief = calculateReliefPCL(result);
       if (relief >= 0)
@@ -207,13 +207,13 @@ int main(int argc, char **argv)
     //===============================================================
 
     {
-      double voxel_size = 0.1;
+      double voxelSize = 0.1;
       double distance_threshold = 1.9;
       int ransac_n = 3;
       int num_iterations = 1000;
     
       // Perform RANSAC segmentation.
-      OPEN3DResult segmentation_result = RansacPlaneSegmentation(file_path, voxel_size, distance_threshold, ransac_n, num_iterations);
+      OPEN3DResult segmentation_result = RansacPlaneSegmentation(filePath, voxelSize, distance_threshold, ransac_n, num_iterations);
     
       // Calculate relief using the inlier cloud and the stored plane model.
       double relief = calculateReliefOpen3D(segmentation_result);
@@ -228,12 +228,12 @@ int main(int argc, char **argv)
 
     {
             // Find the potential plane.
-      float voxel_size =0.15f;
+      float voxelSize =0.15f;
       float distanceThreshold = 1.9f;
       int maxIterations = 200;
 
       
-      PCLResult result = performPROSAC(file_path, voxel_size, distanceThreshold,maxIterations);
+      PCLResult result = performPROSAC(filePath, voxelSize, distanceThreshold,maxIterations);
       
       double data_confidence= calculateDataConfidencePCL(result);
       if (data_confidence>= 0)
@@ -248,13 +248,13 @@ int main(int argc, char **argv)
     // ===============================================================
 
     {
-      double voxel_size = 0.01;
+      double voxelSize = 0.01;
       double distance_threshold = 1.9;
       int ransac_n = 3;
       int num_iterations = 1000;
     
       // Perform RANSAC segmentation.
-      OPEN3DResult segmentation_result = RansacPlaneSegmentation(file_path, voxel_size, distance_threshold, ransac_n, num_iterations);
+      OPEN3DResult segmentation_result = RansacPlaneSegmentation(filePath, voxelSize, distance_threshold, ransac_n, num_iterations);
     
       // Calculate data_confidenceusing the inlier cloud and the stored plane model.
       double data_confidence= calculateDataConfidenceOpen3D(segmentation_result);

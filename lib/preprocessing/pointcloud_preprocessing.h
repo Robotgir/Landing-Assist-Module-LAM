@@ -1,6 +1,7 @@
 #ifndef POINTCLOUD_PREPROCESSING_H
 #define POINTCLOUD_PREPROCESSING_H
 
+#include <common.h>
 #include <iostream>
 #include <vector>
 #include <memory>
@@ -26,9 +27,11 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/grid_minimum.h>
 
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////// DATA STRUCTURING GRID BASED //////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#include <unordered_set>
+
+using PointT = pcl::PointXYZI;
+//======================================== DATA STRUCTURING GRID BASED ==================================================
+
 // Struct to hold both PointCloud and VoxelGrid
 struct VoxelGridResult {
     std::shared_ptr<open3d::geometry::PointCloud> cloud_ptr;
@@ -64,23 +67,35 @@ inline VoxelGridResult create_3d_grid(const std::string& filename, double voxel_
 // Reference link to 3d grid map : https://www.open3d.org/html/cpp_api/classopen3d_1_1geometry_1_1_voxel_grid.html#ae9239348e9de069abaf5912b92dd2b84
 
 // Function to visualize a single Open3D geometry
-inline void Visualize3dGridMap(const std::shared_ptr<const open3d::geometry::Geometry>& geometry,
-                       const std::string& window_title = "3d Grid Map",
-                       int width = 1600,
-                       int height = 900) {
+inline void Visualize3dGridMap(const std::shared_ptr<open3d::geometry::Geometry>& geometry,
+                               const std::string& window_title = "3D Grid Map",
+                               int width = 1600,
+                               int height = 900) 
+{
+    if (!geometry) {
+    std::cerr << "Invalid input geometry. Cannot visualize." << std::endl;
+    return;
+    }
+
+    // If the geometry is a point cloud, set the color to green
+    if (auto pointcloud = std::dynamic_pointer_cast<open3d::geometry::PointCloud>(geometry)) {
+    pointcloud->colors_.resize(pointcloud->points_.size(), Eigen::Vector3d(0.0, 1.0, 0.0)); // Green color (R=0, G=1, B=0)
+    }
+
     // Create a vector to hold the geometry pointers
     std::vector<std::shared_ptr<const open3d::geometry::Geometry>> geometries;
     geometries.push_back(geometry);
-    
+
     // Call the Open3D visualization function
     open3d::visualization::DrawGeometries(geometries, window_title, width, height);
 }
 
+
 // Function to create a 2D grid map using the GridMinimum filter.
-inline pcl::PointCloud<pcl::PointXYZ>::Ptr create2DGridMap(const std::string &filename, float resolution) {
+inline pcl::PointCloud<PointT>::Ptr create2DGridMap(const std::string &filename, float resolution) {
     // Load input point cloud
-    pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud(new pcl::PointCloud<pcl::PointXYZ>());
-    if (pcl::io::loadPCDFile<pcl::PointXYZ>(filename, *input_cloud) == -1) {
+    pcl::PointCloud<PointT>::Ptr input_cloud(new pcl::PointCloud<PointT>());
+    if (pcl::io::loadPCDFile<PointT>(filename, *input_cloud) == -1) {
         std::cerr << "ERROR: Could not read file " << filename << std::endl;
         return nullptr;
     }
@@ -88,11 +103,11 @@ inline pcl::PointCloud<pcl::PointXYZ>::Ptr create2DGridMap(const std::string &fi
 
     // Create the GridMinimum filter object using the provided resolution.
     // The filter will downsample the point cloud by selecting the minimum z value in each grid cell.
-    pcl::GridMinimum<pcl::PointXYZ> grid_min_filter(resolution);
+    pcl::GridMinimum<PointT> grid_min_filter(resolution);
     grid_min_filter.setInputCloud(input_cloud);
 
     // Apply the filter
-    pcl::PointCloud<pcl::PointXYZ>::Ptr grid_cloud(new pcl::PointCloud<pcl::PointXYZ>());
+    pcl::PointCloud<PointT>::Ptr grid_cloud(new pcl::PointCloud<PointT>());
     grid_min_filter.filter(*grid_cloud);
 
     std::cout << "Created 2D grid map with " << grid_cloud->size() << " points (grid cells)." << std::endl;
@@ -104,7 +119,7 @@ inline pcl::PointCloud<pcl::PointXYZ>::Ptr create2DGridMap(const std::string &fi
 
 // Function to visualize a 2D grid map (represented as a point cloud)
 // using the PCLVisualizer.
-inline void visualize2DGridMap(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud) {
+inline void visualize2DGridMap(pcl::PointCloud<PointT>::Ptr cloud) {
     if (!cloud || cloud->empty()) {
         std::cerr << "ERROR: Cannot visualize an empty grid map." << std::endl;
         return;
@@ -115,8 +130,8 @@ inline void visualize2DGridMap(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud) {
     viewer->setBackgroundColor(0.0, 0.0, 0.0);
 
     // Assign a color (e.g., green) for the grid map points.
-    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> color_handler(cloud, 0, 255, 0);
-    viewer->addPointCloud<pcl::PointXYZ>(cloud, color_handler, "grid_map");
+    pcl::visualization::PointCloudColorHandlerCustom<PointT> color_handler(cloud, 0, 255, 0);
+    viewer->addPointCloud<PointT>(cloud, color_handler, "grid_map");
 
     // Set rendering properties (e.g., point size)
     viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "grid_map");
@@ -129,16 +144,16 @@ inline void visualize2DGridMap(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud) {
     }
 }
 
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////// DATA STRUCTURING TREE STRUCTURE BASED ////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//======================================= DATA STRUCTURING TREE STRUCTURE BASED ===============================================================
+
 
 // Function to convert point cloud to octomap
 inline void convertPointCloudToOctomap(const std::string& pcd_filename, const std::string& octomap_filename, double resolution = 0.05)
 {
     // Load the point cloud
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
-    if (pcl::io::loadPCDFile<pcl::PointXYZ>(pcd_filename, *cloud) == -1)
+    pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
+    if (pcl::io::loadPCDFile<PointT>(pcd_filename, *cloud) == -1)
     {
         std::cerr << "[ERROR] Could not read PCD file: " << pcd_filename << std::endl;
         return;
@@ -224,9 +239,8 @@ inline OctreeResult create_octree(const std::string& filename, int max_depth) {
 }
 //Reference Link : https://www.open3d.org/html/cpp_api/classopen3d_1_1geometry_1_1_octree.html
  
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////// FILTERING DOWN SAMPLING //////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//=========================================== FILTERING DOWN SAMPLING ======================================================
+
 
 inline std::shared_ptr<open3d::geometry::PointCloud> apply_voxel_grid_filter(
     const std::string& filename,double voxel_size) 
@@ -239,10 +253,6 @@ inline std::shared_ptr<open3d::geometry::PointCloud> apply_voxel_grid_filter(
         return cloud_ptr; // cloud_ptr and octree remain nullptr
     }
     std::cout << "Loaded point cloud with " << cloud_ptr->points_.size() << " points." << std::endl;
-
-
-   
-
     auto downsampled = cloud_ptr->VoxelDownSample(voxel_size);
     if (downsampled->points_.empty()) {
         std::cerr << "Warning: Downsampled cloud is empty. Try a smaller voxel size." << std::endl;
@@ -267,210 +277,166 @@ inline void VisualizeGeometry(const std::shared_ptr<const open3d::geometry::Geom
     open3d::visualization::DrawGeometries(geometries, window_title, width, height);
 }
 
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////// FILTERING OUTLIER REMOVAL //////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//=============================== FILTERING OUTLIER REMOVAL ===============================================
 
-// Struct to hold original and filtered point clouds
-struct SORFilterResult {
-    std::shared_ptr<open3d::geometry::PointCloud> original_cloud;
-    std::shared_ptr<open3d::geometry::PointCloud> filtered_cloud;
-};
-
-// Function to apply Statistical Outlier Removal (SOR) filter
-inline SORFilterResult apply_sor_filter(
+inline OPEN3DResult apply_sor_filter(
     const std::string& filename,
     int nb_neighbors,
     double std_ratio)
 {
-    SORFilterResult result;
-    // 1. Load the Point Cloud
-    result.original_cloud = std::make_shared<open3d::geometry::PointCloud>();
-    
-    if (!open3d::io::ReadPointCloud(filename, *result.original_cloud)) {
+    OPEN3DResult result;
+    result.open3d_method = "StatisticalOutlierRemoval";
+
+    // Load the original point cloud
+    auto original_cloud = std::make_shared<open3d::geometry::PointCloud>();
+    if (!open3d::io::ReadPointCloud(filename, *original_cloud)) {
         std::cerr << "Failed to read point cloud: " << filename << std::endl;
-        return result; // result.original_cloud and octree remain nullptr
+        return result;
     }
-    std::cout << "Loaded point cloud with " << result.original_cloud->points_.size() << " points." << std::endl;
+    std::cout << "Loaded point cloud with " << original_cloud->points_.size() << " points." << std::endl;
 
+    // Apply SOR filter: RemoveStatisticalOutliers returns a pair: (filtered_cloud, inlier_indices)
+    // Here, filtered_cloud contains the inliers (i.e. noise removed) and inlier_indices are their indices.
+    auto [filtered_cloud, inlier_indices] = original_cloud->RemoveStatisticalOutliers(nb_neighbors, std_ratio);
 
-    // Apply SOR filter
-    std::vector<size_t> inlier_indices;
-    auto [sor_filtered_cloud, indices] = result.original_cloud->RemoveStatisticalOutliers(nb_neighbors, std_ratio);
-    result.filtered_cloud = sor_filtered_cloud; // Assign filtered cloud to SORFilterResult member
+    // Instead of manually computing the complement, we can use the invert flag in SelectByIndex.
+    // In this case, the noise (outliers) are the complement of the inlier indices.
+    auto noise_cloud = original_cloud->SelectByIndex(inlier_indices, true);
 
-    if (!result.filtered_cloud) {
-        std::cerr << "Warning: SOR filtering resulted in an empty cloud." << std::endl;
-        return result;  // Return early with error message printed
-    }
+    // Swap the assignment so that:
+    //   - result.inlier_cloud holds the noise (points removed by filtering)
+    //   - result.outlier_cloud holds the filtered inlier points.
+    result.inlier_cloud = noise_cloud;
+    result.outlier_cloud = filtered_cloud;
 
-  
-    //std::cout << "SOR filter applied. Filtered point cloud has " << sor_filtered_cloud->points_.size() << " points." << std::endl;
+    // For SOR filter, downsampled_cloud and plane_model are not applicable.
+    result.downsampled_cloud = nullptr;
+    result.plane_model = Eigen::Vector4d(0, 0, 0, 0);
+
     return result;
 }
+
 // Reference Link: https://www.open3d.org/docs/0.6.0/cpp_api/namespaceopen3d_1_1geometry.html#add56e2ec673de3b9289a25095763af6d
 // https://github.com/isl-org/Open3D/blob/main/cpp/open3d/geometry/PointCloud.cpp#L602
 
-// Function to visualize original and filtered point clouds
-inline void visualize_sor_filtered_point_cloud(
-    const std::shared_ptr<open3d::geometry::PointCloud>& original,
-    const std::shared_ptr<open3d::geometry::PointCloud>& filtered)
+inline PCLResult applyRadiusFilter(
+    const std::string& file_path,
+    double voxel_size=0.05,
+    double radius_search=0.9,
+    int min_neighbors=40)
 {
-    if (!original || !filtered) {
-        std::cerr << "Error: One or both point clouds to visualize are null." << std::endl;
-        return;
+    PCLResult result;
+
+    result.pcl_method = "Radius Outlier Removal";
+    result.inlier_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
+    result.outlier_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
+    result.downsampled_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
+
+    // Load the original point cloud from file.
+    typename pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
+    if (pcl::io::loadPCDFile<PointT>(file_path, *cloud) == -1) {
+        std::cerr << "[ERROR] Failed to load original PCD file: " << file_path << std::endl;
+        return result;  // Return with empty clouds on error.
     }
+    std::cout << "[INFO] Loaded " << cloud->size() 
+              << " points from " << file_path << std::endl;
 
-    // Assign colors for differentiation
-    auto original_colored = std::make_shared<open3d::geometry::PointCloud>(*original);
-    original_colored->PaintUniformColor(Eigen::Vector3d(1.0, 0.0, 0.0)); // Red for original
+    // Downsample the cloud using a voxel grid filter.
+    // Assume that downsamplePointCloudPCL is a helper function defined elsewhere.
+    // typename pcl::PointCloud<PointT>::Ptr cloud_downsampled(new pcl::PointCloud<PointT>());
+    downsamplePointCloudPCL<PointT>(cloud, result.downsampled_cloud, voxel_size);
+    
 
-    auto filtered_colored = std::make_shared<open3d::geometry::PointCloud>(*filtered);
-    filtered_colored->PaintUniformColor(Eigen::Vector3d(0.0, 1.0, 0.0)); // Green for filtered
-
-    // Prepare geometries for visualization
-    std::vector<std::shared_ptr<const open3d::geometry::Geometry>> geometries;
-    geometries.push_back(original_colored);
-    geometries.push_back(filtered_colored);
-
-    // Visualize
-    open3d::visualization::DrawGeometries(geometries, "SOR Filtere Original (Red) and Filtered (Green) Point Clouds", 1600, 900);
-}
-
-// Function to downsample a point cloud using VoxelGrid filter
-template<typename PointT>
-typename pcl::PointCloud<PointT>::Ptr downsamplePointCloud(
-    const typename pcl::PointCloud<PointT>::Ptr &cloud, 
-    float leaf_size)
-{
-    typename pcl::PointCloud<PointT>::Ptr cloud_downsampled(new pcl::PointCloud<PointT>());
-    pcl::VoxelGrid<PointT> sor;
-    sor.setInputCloud(cloud);
-    sor.setLeafSize(leaf_size, leaf_size, leaf_size);
-    sor.filter(*cloud_downsampled);
-    std::cout << "[INFO] Downsampled cloud size: " << cloud_downsampled->size() << std::endl;
-    return cloud_downsampled;
-}
-
-
-// Function to apply Radius Outlier Removal filter
-template<typename PointT>
-typename pcl::PointCloud<PointT>::Ptr applyRadiusFilter(
-    const typename pcl::PointCloud<PointT>::Ptr &cloud,
-    double radius_search,
-    int min_neighbors)
-{
-    typename pcl::PointCloud<PointT>::Ptr cloud_filtered(new pcl::PointCloud<PointT>());
-
+    // Set up the Radius Outlier Removal filter.
     pcl::RadiusOutlierRemoval<PointT> ror;
-    ror.setInputCloud(cloud);
+    ror.setInputCloud(result.downsampled_cloud);
     ror.setRadiusSearch(radius_search);
     ror.setMinNeighborsInRadius(min_neighbors);
-    ror.filter(*cloud_filtered);
 
-    std::cout << "[INFO] Applied Radius Outlier Removal. Filtered cloud size: " 
-              << cloud_filtered->size() << std::endl;
+    // First pass: get inliers (points that meet the criteria).
+    ror.setNegative(false);
+    ror.filter(*result.inlier_cloud);
+    // result.inlier_cloud = result.inlier_cloud;
+    std::cout << "[INFO] Applied Radius Outlier Removal for inliers. Cloud size: " 
+              << result.inlier_cloud->size() << std::endl;
 
-    return cloud_filtered;
+    // Second pass: get outliers (points that do not meet the criteria).
+    ror.setNegative(true);
+    ror.filter(*result.outlier_cloud);
+    // result.outlier_cloud = cloud_outliers;
+    std::cout << "[INFO] Applied Radius Outlier Removal for outliers. Cloud size: " 
+              << result.outlier_cloud->size() << std::endl;
+
+    return result;
 }
+
 //// Referencle Link : http://pointclouds.org/documentation/classpcl_1_1_radius_outlier_removal.html
-////                       https://github.com/PointCloudLibrary/pcl/blob/master/filters/src/radius_outlier_removal.cpp#L47
+////                   https://github.com/PointCloudLibrary/pcl/blob/master/filters/src/radius_outlier_removal.cpp#L47
 
 
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////// FILTERING SMOOTHING /////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//=============================== FILTERING SMOOTHING ======================================================
 
 // Function to apply Bilateral Filter
-template<typename PointT>
-typename pcl::PointCloud<PointT>::Ptr applyBilateralFilter(
-    const typename pcl::PointCloud<PointT>::Ptr &cloud,
+
+inline PCLResult applyBilateralFilter(
+    const std::string& file_path,
+    double voxel_size,
     double sigma_s,
-    double sigma_r) // Changed sigma_r to double
+    double sigma_r)
 {
-    typename pcl::PointCloud<PointT>::Ptr cloud_filtered(new pcl::PointCloud<PointT>());
+    PCLResult result;
+    result.pcl_method = "BilateralFilter";
+    result.inlier_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
+    result.outlier_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
+    result.downsampled_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
+    
+    // Load the original point cloud from file.
+    typename pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
+    if (pcl::io::loadPCDFile<PointT>(file_path, *cloud) == -1) {
+        std::cerr << "[ERROR] Failed to load original PCD file: " << file_path << std::endl;
+        return result;  // Return with empty clouds on error.
+    }
+    std::cout << "[INFO] Loaded " << cloud->size() 
+              << " points from " << file_path << std::endl;
+
+    downsamplePointCloudPCL<PointT>(cloud, result.downsampled_cloud, voxel_size);
 
     // Initialize the bilateral filter
     pcl::BilateralFilter<PointT> bilateral_filter;
+
+    
     
     // Set the input cloud
     bilateral_filter.setInputCloud(cloud);
     
     // Set filter parameters
-    bilateral_filter.setHalfSize(sigma_s);  // Spatial standard deviation
-    bilateral_filter.setStdDev(sigma_r);     // Range standard deviation
+    bilateral_filter.setHalfSize(sigma_s);
+    bilateral_filter.setStdDev(sigma_r);
     
-    // Create and set the search method
+    // Use KdTree as the search method
     typename pcl::search::KdTree<PointT>::Ptr tree(new pcl::search::KdTree<PointT>());
     bilateral_filter.setSearchMethod(tree);
-    
-    // Apply the filter
-    bilateral_filter.filter(*cloud_filtered); // Use filter() as per implementation
-    
-    std::cout << "[INFO] Applied Bilateral Filter. Filtered cloud size: " 
-              << cloud_filtered->size() << std::endl;
 
-    return cloud_filtered;
+    // result.inlier_cloud = typename pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+    // Apply the filter
+    bilateral_filter.filter(*result.inlier_cloud);
+
+    std::cout << "[INFO] Applied Bilateral Filter. Filtered cloud size: " 
+              << result.inlier_cloud->size() << std::endl;
+
+    // Store the filtered cloud
+  
+
+    // No inlier/outlier separation or plane fitting in bilateral filtering
+    result.outlier_cloud = nullptr;
+    result.plane_coefficients = nullptr;
+
+    return result;
 }
+
 //   Reference Link: https://pointclouds.org/documentation/classpcl_1_1_bilateral_filter.html
 //                   https://github.com/PointCloudLibrary/pcl/blob/master/filters/include/pcl/filters/bilateral.h#L56
-
-// Function to visualize two point clouds (as defined above)
-template<typename PointT>
-void visualizeClouds(
-    const typename pcl::PointCloud<PointT>::Ptr &cloud_downsampled,
-    const typename pcl::PointCloud<PointT>::Ptr &filtered_cloud,
-    const std::string &window_title,
-    const std::string &original_cloud_name,
-    const std::string &filtered_cloud_name,
-    int point_size,
-    float translation_offset)
-{
-    pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer(window_title));
-    viewer->setBackgroundColor(1.0, 1.0, 1.0); // White background
-
-    // Translate the filtered cloud to add a visible space between the two clouds
-    typename pcl::PointCloud<PointT>::Ptr translated_filtered_cloud(new pcl::PointCloud<PointT>(*filtered_cloud));
-
-    for (auto &point : translated_filtered_cloud->points)
-    {
-        point.x += translation_offset; // Translate the filtered cloud along the x-axis
-        //point.y += translation_offset; // Translate the filtered cloud along the y-axis
-        //point.z += translation_offset; // Translate the filtered cloud along the z-axis
-
-    }
-
-    // Original cloud in green
-    pcl::visualization::PointCloudColorHandlerCustom<PointT> orig_color(cloud_downsampled,0 ,255 , 0); // green
-        // Filtered cloud in red
-    pcl::visualization::PointCloudColorHandlerCustom<PointT> filt_color(translated_filtered_cloud,255, 0, 0); // red
-
-        // Add the original point cloud to the viewer
-    viewer->addPointCloud<PointT>(cloud_downsampled, orig_color, original_cloud_name);
-        // Set the point size for the original cloud
-    viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE,
-                                               point_size,
-                                               original_cloud_name);
-
-        // Add the filtered point cloud to the viewer
-    viewer->addPointCloud<PointT>(translated_filtered_cloud, filt_color, filtered_cloud_name);
-        // Set the point size for the filtered cloud
-    viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE,
-                                                  point_size,
-                                                 filtered_cloud_name);
-    //}
-
-    // Add a coordinate system (scale = 1.0)
-    viewer->addCoordinateSystem(1.0);
-    //viewer->initCameraParameters();
-
-    // Main loop to keep the visualizer window open
-    while (!viewer->wasStopped())
-    {
-        viewer->spinOnce(100);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-}
 
 #endif // POINTCLOUD_PREPROCESSING_H

@@ -8,7 +8,7 @@ bool g_skipVisualization = false;
 
 // Input file path (adjust if needed)
 static const std::string file_path = "/home/airsim_user/Landing-Assist-Module-LAM/lib/hazard_metrices/test.pcd";
-
+auto [filePath, performDownsampling] = loadCloudWithFlag<PointT>(file_path);
 //--------------------------------------------------------------------------
 // Test 1: PCA / Normal Estimation / Classification (PCL)
 //--------------------------------------------------------------------------
@@ -17,7 +17,7 @@ TEST(HazardMetricesTest, TestPCA_NormalEstimation) {
     float slope_threshold = 5.0f;
     int k = 10;
     // Call the PCA-based classification function.
-    PCLResult result =  PrincipleComponentAnalysis(file_path,
+    PCLResult result =  PrincipleComponentAnalysis(filePath,
                                                     voxel_size,
                                                     slope_threshold,
                                                     k);
@@ -46,7 +46,7 @@ TEST(HazardMetricesTest, TestOpen3D_RANSAC) {
 
     if (!g_skipVisualization) {
         // Visualize the segmentation result; press 'q' to close the window.
-        VisualizeOPEN3D(result);
+        visualizeOPEN3D(result);
     } else {
         std::cout << "[TestOpen3D_RANSAC] Inliers: " << result.inlier_cloud->points_.size()
                   << ", Outliers: " << result.outlier_cloud->points_.size() << std::endl;
@@ -65,7 +65,7 @@ TEST(HazardMetricesTest, TestPCL_RANSAC) {
     int maxIterations = 1000;
 
     // Call the PCL RANSAC segmentation function.
-    PCLResult result = performRANSAC(file_path, voxelSize, distanceThreshold, maxIterations);
+    PCLResult result = performRANSAC(filePath, voxelSize, distanceThreshold, maxIterations);
 
     if (!g_skipVisualization) {
         visualizePCL(result);
@@ -87,7 +87,7 @@ TEST(HazardMetricesTest, TestPROSAC) {
     int maxIterations = 200;
 
     // Call the PROSAC segmentation function.
-    PCLResult result = performPROSAC(file_path, voxel_size, distanceThreshold, maxIterations);
+    PCLResult result = performPROSAC(filePath, voxel_size, distanceThreshold, maxIterations);
 
     if (!g_skipVisualization) {
         visualizePCL(result);
@@ -111,7 +111,7 @@ TEST(HazardMetricesTest, TestLeastSquaresPlaneFitting) {
     OPEN3DResult result = LeastSquaresPlaneFitting(file_path, voxel_size, distance_threshold);
 
     if (!g_skipVisualization) {
-        VisualizeOPEN3D(result);
+        visualizeOPEN3D(result);
     } else {
         std::cout << "[TestLeastSquaresPlaneFitting] Inliers: " << result.inlier_cloud->points_.size()
                   << ", Outliers: " << result.outlier_cloud->points_.size() << std::endl;
@@ -130,7 +130,7 @@ TEST(HazardMetricesTest, TestLMEDS) {
     int maxIterations = 100;
 
     // Call the LMEDS segmentation function.
-    PCLResult result = performLMEDS(file_path, voxelSize, distanceThreshold, maxIterations);
+    PCLResult result = performLMEDS(filePath, voxelSize, distanceThreshold, maxIterations);
 
     if (!g_skipVisualization) {
         visualizePCL(result);
@@ -155,7 +155,7 @@ TEST(HazardMetricesTest, TestAverage3DGradient) {
     float angleThreshold = 10.0f;
 
     // Call the Average3DGradient flatness detection function.
-    PCLResult result = Average3DGradient(file_path, voxelSize, neighborRadius, gradientThreshold, angleThreshold);
+    PCLResult result = Average3DGradient(filePath, voxelSize, neighborRadius, gradientThreshold, angleThreshold);
 
     if (!g_skipVisualization) {
         // Visualize the result using visualizePCL, with "inlier_cloud" tag.
@@ -173,10 +173,10 @@ TEST(HazardMetricesTest, TestAverage3DGradient) {
 // Test 8: Region Growing Segmentation (PCL-Based)
 //--------------------------------------------------------------------------
 TEST(HazardMetricesTest, TestRegionGrowing) {
-    double voxel_size = 0.45;
+    double voxel_size = 0.15;
 
     // Call the region growing segmentation function.
-    PCLResult result = regionGrowingSegmentation(file_path, voxel_size);
+    PCLResult result = regionGrowingSegmentation(filePath, voxel_size);
 
     if (!g_skipVisualization) {
         visualizePCL(result);

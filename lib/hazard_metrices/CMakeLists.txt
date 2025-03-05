@@ -18,6 +18,10 @@ add_definitions(${PCL_DEFINITIONS})
 find_package(octomap REQUIRED)  # Sets OCTOMAP_INCLUDE_DIRS & OCTOMAP_LIBRARIES
 include_directories(${OCTOMAP_INCLUDE_DIRS})
 
+# Set include directories relative to the current CMakeLists.txt location.
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../common)
+
+
 # ----------------------------------------------------------------------------
 # 2. Optionally, find OpenMP if needed for parallelization
 # ----------------------------------------------------------------------------
