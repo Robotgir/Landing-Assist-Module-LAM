@@ -1,7 +1,7 @@
 #ifndef POINTCLOUD_PREPROCESSING_H
 #define POINTCLOUD_PREPROCESSING_H
 
-#include <common.h>
+#include <../common/common.h>
 #include <iostream>
 #include <vector>
 #include <memory>
@@ -30,6 +30,10 @@
 #include <unordered_set>
 
 using PointT = pcl::PointXYZI;
+
+template <typename PointT>
+using CloudInput = std::variant<std::string, typename pcl::PointCloud<PointT>::Ptr>;
+
 //======================================== DATA STRUCTURING GRID BASED ==================================================
 
 // Struct to hold both PointCloud and VoxelGrid
@@ -39,14 +43,14 @@ struct VoxelGridResult {
 };
 
 // // Function to load point cloud and create voxel grid
-inline VoxelGridResult create_3d_grid(const std::string& filename, double voxel_size) {
+inline VoxelGridResult create_3d_grid(const std::string& filePath, double voxel_size) {
     VoxelGridResult result;
 
     // 1. Load the Point Cloud
     
     result.cloud_ptr = std::make_shared<open3d::geometry::PointCloud>();
-    if (!open3d::io::ReadPointCloud(filename, *result.cloud_ptr)) {
-        std::cerr << "Failed to read point cloud: " << filename << std::endl;
+    if (!open3d::io::ReadPointCloud(filePath, *result.cloud_ptr)) {
+        std::cerr << "Failed to read point cloud: " << filePath << std::endl;
         return result; // cloud_ptr and voxel_grid_ptr remain nullptr
     }
     std::cout << "Loaded point cloud with " << result.cloud_ptr->points_.size() << " points." << std::endl;
@@ -92,14 +96,14 @@ inline void Visualize3dGridMap(const std::shared_ptr<open3d::geometry::Geometry>
 
 
 // Function to create a 2D grid map using the GridMinimum filter.
-inline pcl::PointCloud<PointT>::Ptr create2DGridMap(const std::string &filename, float resolution) {
+inline pcl::PointCloud<PointT>::Ptr create2DGridMap(const std::string &filePath, float resolution) {
     // Load input point cloud
     pcl::PointCloud<PointT>::Ptr input_cloud(new pcl::PointCloud<PointT>());
-    if (pcl::io::loadPCDFile<PointT>(filename, *input_cloud) == -1) {
-        std::cerr << "ERROR: Could not read file " << filename << std::endl;
+    if (pcl::io::loadPCDFile<PointT>(filePath, *input_cloud) == -1) {
+        std::cerr << "ERROR: Could not read file " << filePath << std::endl;
         return nullptr;
     }
-    std::cout << "Loaded " << input_cloud->size() << " points from " << filename << std::endl;
+    std::cout << "Loaded " << input_cloud->size() << " points from " << filePath << std::endl;
 
     // Create the GridMinimum filter object using the provided resolution.
     // The filter will downsample the point cloud by selecting the minimum z value in each grid cell.
@@ -149,16 +153,16 @@ inline void visualize2DGridMap(pcl::PointCloud<PointT>::Ptr cloud) {
 
 
 // Function to convert point cloud to octomap
-inline void convertPointCloudToOctomap(const std::string& pcd_filename, const std::string& octomap_filename, double resolution = 0.05)
+inline void convertPointCloudToOctomap(const std::string& pcd_filePath, const std::string& octomap_filePath, double resolution = 0.05)
 {
     // Load the point cloud
     pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
-    if (pcl::io::loadPCDFile<PointT>(pcd_filename, *cloud) == -1)
+    if (pcl::io::loadPCDFile<PointT>(pcd_filePath, *cloud) == -1)
     {
-        std::cerr << "[ERROR] Could not read PCD file: " << pcd_filename << std::endl;
+        std::cerr << "[ERROR] Could not read PCD file: " << pcd_filePath << std::endl;
         return;
     }
-    std::cout << "[INFO] Loaded " << cloud->size() << " points from " << pcd_filename << std::endl;
+    std::cout << "[INFO] Loaded " << cloud->size() << " points from " << pcd_filePath << std::endl;
 
     // Create OctoMap
 
@@ -174,8 +178,8 @@ inline void convertPointCloudToOctomap(const std::string& pcd_filename, const st
     tree.updateInnerOccupancy();
 
     // Save OctoMap as a binary file
-    tree.writeBinary(octomap_filename);
-    std::cout << "[INFO] OctoMap saved as " << octomap_filename << std::endl;
+    tree.writeBinary(octomap_filePath);
+    std::cout << "[INFO] OctoMap saved as " << octomap_filePath << std::endl;
 }
 
 //Struct to hold kdtree
@@ -189,13 +193,13 @@ struct KDTreeResult {
 
 // Function to load point cloud, build KDTree
 
-inline KDTreeResult create_kdtree(const std::string& filename, float K) {
+inline KDTreeResult create_kdtree(const std::string& filePath, float K) {
     KDTreeResult result;
 
     // 1. Load the Point Cloud
     result.cloud_ptr = std::make_shared<open3d::geometry::PointCloud>();
-    if (!open3d::io::ReadPointCloud(filename, *result.cloud_ptr)) {
-        std::cerr << "Failed to read point cloud: " << filename << std::endl;
+    if (!open3d::io::ReadPointCloud(filePath, *result.cloud_ptr)) {
+        std::cerr << "Failed to read point cloud: " << filePath << std::endl;
         return result; // cloud_ptr and kdtree remain nullptr
     }
     std::cout << "Loaded point cloud with " << result.cloud_ptr->points_.size() << " points." << std::endl;
@@ -218,13 +222,13 @@ struct OctreeResult {
 };
 
 // Function to load point cloud, build KDTree
-inline OctreeResult create_octree(const std::string& filename, int max_depth) {
+inline OctreeResult create_octree(const std::string& filePath, int max_depth) {
     OctreeResult result;
 
     // 1. Load the Point Cloud
     result.cloud_ptr = std::make_shared<open3d::geometry::PointCloud>();
-    if (!open3d::io::ReadPointCloud(filename, *result.cloud_ptr)) {
-        std::cerr << "Failed to read point cloud: " << filename << std::endl;
+    if (!open3d::io::ReadPointCloud(filePath, *result.cloud_ptr)) {
+        std::cerr << "Failed to read point cloud: " << filePath << std::endl;
         return result; // cloud_ptr and octree remain nullptr
     }
     std::cout << "Loaded point cloud with " << result.cloud_ptr->points_.size() << " points." << std::endl;
@@ -243,13 +247,13 @@ inline OctreeResult create_octree(const std::string& filename, int max_depth) {
 
 
 inline std::shared_ptr<open3d::geometry::PointCloud> apply_voxel_grid_filter(
-    const std::string& filename,double voxel_size) 
+    const std::string& filePath,double voxel_size) 
 {
 
     // 1. Load the Point Cloud
     std::shared_ptr<open3d::geometry::PointCloud> cloud_ptr = std::make_shared<open3d::geometry::PointCloud>();
-    if (!open3d::io::ReadPointCloud(filename, *cloud_ptr)) {
-        std::cerr << "Failed to read point cloud: " << filename << std::endl;
+    if (!open3d::io::ReadPointCloud(filePath, *cloud_ptr)) {
+        std::cerr << "Failed to read point cloud: " << filePath << std::endl;
         return cloud_ptr; // cloud_ptr and octree remain nullptr
     }
     std::cout << "Loaded point cloud with " << cloud_ptr->points_.size() << " points." << std::endl;
@@ -280,7 +284,7 @@ inline void VisualizeGeometry(const std::shared_ptr<const open3d::geometry::Geom
 //=============================== FILTERING OUTLIER REMOVAL ===============================================
 
 inline OPEN3DResult apply_sor_filter(
-    const std::string& filename,
+    const std::string& filePath,
     int nb_neighbors,
     double std_ratio)
 {
@@ -289,8 +293,8 @@ inline OPEN3DResult apply_sor_filter(
 
     // Load the original point cloud
     auto original_cloud = std::make_shared<open3d::geometry::PointCloud>();
-    if (!open3d::io::ReadPointCloud(filename, *original_cloud)) {
-        std::cerr << "Failed to read point cloud: " << filename << std::endl;
+    if (!open3d::io::ReadPointCloud(filePath, *original_cloud)) {
+        std::cerr << "Failed to read point cloud: " << filePath << std::endl;
         return result;
     }
     std::cout << "Loaded point cloud with " << original_cloud->points_.size() << " points." << std::endl;
@@ -306,8 +310,8 @@ inline OPEN3DResult apply_sor_filter(
     // Swap the assignment so that:
     //   - result.inlier_cloud holds the noise (points removed by filtering)
     //   - result.outlier_cloud holds the filtered inlier points.
-    result.inlier_cloud = noise_cloud;
-    result.outlier_cloud = filtered_cloud;
+    result.inlier_cloud = filtered_cloud;
+    result.outlier_cloud = noise_cloud;
 
     // For SOR filter, downsampled_cloud and plane_model are not applicable.
     result.downsampled_cloud = nullptr;

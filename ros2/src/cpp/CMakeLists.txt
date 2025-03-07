@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.10)
 project(MySLZDApp)
 
+# Use C++17
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 # Find required packages.
 find_package(yaml-cpp REQUIRED)
 find_package(PCL REQUIRED)
@@ -16,15 +20,25 @@ include_directories(
 )
 
 # Add your main executable.
-add_executable(MySLZDApp main.cpp)
+add_executable(main main.cpp)
 
 # Link libraries.
-target_link_libraries(MySLZDApp 
+target_link_libraries(main
   yaml-cpp 
   Open3D::Open3D 
   ${PCL_LIBRARIES}
   ${OCTOMAP_LIBRARIES}  
+  GL                     # -lGL
+  GLU                    # -lGLU
+  glfw                   # -lglfw
+  GLEW                   # -lGLEW
+  assimp                 # -lassimp
+  jsoncpp               # -ljsoncpp
+  jpeg                   # -ljpeg
+  png                    # -lpng
+  z                      # -lz
+  pthread                # -lpthread
 )
 
 # Optionally install the executable.
-install(TARGETS MySLZDApp DESTINATION bin)
+install(TARGETS main DESTINATION bin)

@@ -75,6 +75,8 @@ This project requires:
  WIthout visualization you need to run the following command 
    ./test_pointcloud_preprocessing --no-vis 
     or change line 7 bool g_skipVisualization = false; to bool g_skipVisualization = true;
+ For running specific test for eg :apply_radius_filter you can run it with 
+   ./test_pointcloud_preprocessing --gtest_filter=PCLFiltering.ApplyRadiusFilter
 
 ## Data Structuring Grid based
  1. create 3d grid

@@ -7,8 +7,8 @@
 bool g_skipVisualization = false;
 
 // Input file path (adjust if needed)
-static const std::string file_path = "/home/airsim_user/Landing-Assist-Module-LAM/lib/hazard_metrices/test.pcd";
-auto [filePath, performDownsampling] = loadCloudWithFlag<PointT>(file_path);
+static const std::string file_path = "/home/airsim_user/Landing-Assist-Module-LAM/test.pcd";
+auto [filePath, performDownsampling] = loadPCLCloud<PointT>(file_path);
 //--------------------------------------------------------------------------
 // Test 1: PCA / Normal Estimation / Classification (PCL)
 //--------------------------------------------------------------------------

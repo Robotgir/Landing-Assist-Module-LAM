@@ -8,7 +8,7 @@
 bool g_skipVisualization = false;
 
 // Change this file path if needed.
-static const std::string filename = "/home/airsim_user/Landing-Assist-Module-LAM/lib/hazard_metrices/test.pcd";
+static const std::string filePath = "/home/airsim_user/Landing-Assist-Module-LAM/test.pcd";
 
 // Helper function to check if a file exists.
 bool fileExists(const std::string &path) {
@@ -22,7 +22,7 @@ bool fileExists(const std::string &path) {
 
 TEST(DataStructuring, Create2DGridMap) {
     float gridmap_resolution = 0.1f;
-    pcl::PointCloud<pcl::PointXYZI>::Ptr grid_map = create2DGridMap(filename, gridmap_resolution);
+    pcl::PointCloud<pcl::PointXYZI>::Ptr grid_map = create2DGridMap(filePath, gridmap_resolution);
 
     if (!g_skipVisualization) {
         // Visualize the segmentation result; press 'q' to close the window.
@@ -41,7 +41,7 @@ TEST(DataStructuring, Create2DGridMap) {
 
 TEST(DataStructuring, Create3DGridMap) {
     double voxel_size = 0.55;
-    VoxelGridResult voxelgrid_result = create_3d_grid(filename, voxel_size);
+    VoxelGridResult voxelgrid_result = create_3d_grid(filePath, voxel_size);
 
     if (!g_skipVisualization) {
         // Visualize the segmentation result; press 'q' to close the window.
@@ -62,7 +62,7 @@ TEST(DataStructuring, Create3DGridMap) {
 
 TEST(DataStructuring, CreateKDTree) {
     float K = 0.1f;
-    KDTreeResult kdtree_result = create_kdtree(filename, K);
+    KDTreeResult kdtree_result = create_kdtree(filePath, K);
     EXPECT_NE(kdtree_result.cloud_ptr, nullptr);
     EXPECT_NE(kdtree_result.kdtree, nullptr);
     if(kdtree_result.cloud_ptr)
@@ -73,7 +73,7 @@ TEST(DataStructuring, CreateKDTree) {
 
 TEST(DataStructuring, CreateOctree) {
     int max_depth = 10;
-    OctreeResult octree_result = create_octree(filename, max_depth);
+    OctreeResult octree_result = create_octree(filePath, max_depth);
     EXPECT_NE(octree_result.cloud_ptr, nullptr);
     EXPECT_NE(octree_result.octree, nullptr);
     if(octree_result.cloud_ptr)
@@ -83,12 +83,12 @@ TEST(DataStructuring, CreateOctree) {
 }
 
 TEST(DataStructuring, ConvertPointCloudToOctomap) {
-    std::string octomap_filename = "/home/airsim_user/Landing-Assist-Module-LAM/lib/preprocessing/pointcloud.bt";
+    std::string octomap_filePath = "/home/airsim_user/Landing-Assist-Module-LAM/lib/preprocessing/pointcloud.bt";
     double octomap_resolution = 0.05;
     // Call the conversion function.
-    convertPointCloudToOctomap(filename, octomap_filename, octomap_resolution);
+    convertPointCloudToOctomap(filePath, octomap_filePath, octomap_resolution);
     // Check that the octomap file was created.
-    EXPECT_TRUE(fileExists(octomap_filename));
+    EXPECT_TRUE(fileExists(octomap_filePath));
 }
 
 ////////////////////////////////////////////////////////////
@@ -97,7 +97,7 @@ TEST(DataStructuring, ConvertPointCloudToOctomap) {
 
 TEST(OPEN3DFiltering, ApplyVoxelGridFilter) {
     double voxel_downsample_size = 0.15;
-    auto downsampled_cloud = apply_voxel_grid_filter(filename, voxel_downsample_size);
+    auto downsampled_cloud = apply_voxel_grid_filter(filePath, voxel_downsample_size);
     
     if (!g_skipVisualization) {
         // Visualize the segmentation result; press 'q' to close the window.
@@ -113,7 +113,7 @@ TEST(OPEN3DFiltering, ApplyVoxelGridFilter) {
 TEST(OPEN3DFiltering, ApplySORFilter) {
     int nb_neighbors = 15;
     double std_ratio = 0.1;
-    OPEN3DResult result = apply_sor_filter(filename, nb_neighbors, std_ratio);
+    OPEN3DResult result = apply_sor_filter(filePath, nb_neighbors, std_ratio);
     
 
     if (!g_skipVisualization) {
@@ -139,8 +139,7 @@ TEST(PCLFiltering, ApplyRadiusFilter) {
     double voxel_size=0.05;
     double radius_search = 0.9; //0.1 to 0.3,0.3 to 0.7,0.7 to 0.15
     int min_neighbors = 50;      // 5 to 15,10 to 30,20 to 50
-    float translation_offset_radius_filter = 0.0f; //change this value to visualize the filtered cloud in a different position along x axis if it 0 filtered and original pointcloud will be in the same position
-    PCLResult result = applyRadiusFilter(filename, voxel_size, radius_search, min_neighbors);
+    PCLResult result = applyRadiusFilter(filePath, voxel_size, radius_search, min_neighbors);
     
     if (!g_skipVisualization) {
         // Visualize the segmentation result; press 'q' to close the window.
@@ -157,7 +156,7 @@ TEST(PCLFiltering, ApplyBilateralFilter) {
     double sigma_s = 15.0; // Small point clouds or detailed structures: sigma_s = 1.0 - 5.0 ,Noisy or dense point clouds: sigma_s = 5.0 - 10.0,Large or very noisy point clouds: sigma_s = 10.0 - 15.0
     double sigma_r = 0.3;  //Preserve edges and details: sigma_r = 0.05 - 0.1, Moderate smoothing: sigma_r = 0.1 - 0.2, Heavy denoising (risk of over-smoothing): sigma_r = 0.2 - 0.3
 
-    PCLResult result = applyBilateralFilter(filename, voxelSize, sigma_s, sigma_r);
+    PCLResult result = applyBilateralFilter(filePath, voxelSize, sigma_s, sigma_r);
 
     
     if (!g_skipVisualization) {

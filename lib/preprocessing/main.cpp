@@ -6,13 +6,13 @@ using PointT = pcl::PointXYZI;
 int main(int argc, char **argv)
 {
     //// Define the input PCD file path.
-    std::string filename = "/home/airsim_user/Landing-Assist-Module-LAM/lib/hazard_metrices/test.pcd";
+    std::string filePath = "/home/airsim_user/Landing-Assist-Module-LAM/test.pcd";
 
     //============================= DATA STRUCTURING ==================================================
 
     // Create and visualize a 2D Grid Map.
     float gridmap_resolution = 0.1f;
-    pcl::PointCloud<PointT>::Ptr grid_map = create2DGridMap(filename, gridmap_resolution);
+    pcl::PointCloud<PointT>::Ptr grid_map = create2DGridMap(filePath, gridmap_resolution);
     if (!grid_map) {
         return -1;
     }
@@ -20,7 +20,7 @@ int main(int argc, char **argv)
 
     //// Create and visualize a 3D Grid Map.
     double voxel_size = 0.55; // Adjust voxel size as needed.
-    VoxelGridResult voxelgrid_result = create_3d_grid(filename, voxel_size);
+    VoxelGridResult voxelgrid_result = create_3d_grid(filePath, voxel_size);
     if (!voxelgrid_result.voxel_grid_ptr || !voxelgrid_result.cloud_ptr) {
         std::cerr << "Failed to create 3d Grid." << std::endl;
         return 1;
@@ -29,7 +29,7 @@ int main(int argc, char **argv)
 
     //// Create KDTree.
     float K = 0.1f; // (Parameter can be tuned as needed.)
-    KDTreeResult kdtree_result = create_kdtree(filename, K);
+    KDTreeResult kdtree_result = create_kdtree(filePath, K);
     if (!kdtree_result.kdtree || !kdtree_result.cloud_ptr) {
         std::cerr << "Failed to create KDTree." << std::endl;
         return 1;
@@ -37,23 +37,23 @@ int main(int argc, char **argv)
 
     //// Create Octree.
     int max_depth = 10; // Example maximum depth.
-    OctreeResult octree_result = create_octree(filename, max_depth);
+    OctreeResult octree_result = create_octree(filePath, max_depth);
     if (!octree_result.octree || !octree_result.cloud_ptr) {
         std::cerr << "Failed to create Octree." << std::endl;
         return 1;
     }
 
     //// Create and save Octomap.
-    std::string octomap_filename = "/home/airsim_user/Landing-Assist-Module-LAM/lib/preprocessing/pointcloud.bt";
+    std::string octomap_filePath = "/home/airsim_user/Landing-Assist-Module-LAM/lib/preprocessing/pointcloud.bt";
     double octomap_resolution = 0.05;
-    convertPointCloudToOctomap(filename, octomap_filename, octomap_resolution);
+    convertPointCloudToOctomap(filePath, octomap_filePath, octomap_resolution);
 
     //======================================= FILTERING ===============================================
 
     //// Apply voxel grid filter using Open3D and visualize.
     {
         double voxel_downsample_size = 0.15;
-        auto downsampled_cloud = apply_voxel_grid_filter(filename, voxel_downsample_size);
+        auto downsampled_cloud = apply_voxel_grid_filter(filePath, voxel_downsample_size);
         if (!downsampled_cloud) {
             std::cerr << "Failed to apply voxel grid filter." << std::endl;
             return 1;
@@ -64,7 +64,7 @@ int main(int argc, char **argv)
     {
         int nb_neighbors = 15;
         double std_ratio = 0.1;
-        OPEN3DResult result = apply_sor_filter(filename, nb_neighbors, std_ratio);
+        OPEN3DResult result = apply_sor_filter(filePath, nb_neighbors, std_ratio);
         visualizeOPEN3D(result);
     }
     // ============================= FILTERING USING PCL ======================================================
@@ -75,7 +75,7 @@ int main(int argc, char **argv)
         double radius_search = 0.9; //0.1 to 0.3,0.3 to 0.7,0.7 to 0.15
         int min_neighbors = 50;      // 5 to 15,10 to 30,20 to 50
         float translation_offset_radius_filter = 0.0f; //change this value to visualize the filtered cloud in a different position along x axis if it 0 filtered and original pointcloud will be in the same position
-        PCLResult result = applyRadiusFilter(filename,voxelSize, radius_search, min_neighbors);
+        PCLResult result = applyRadiusFilter(filePath,voxelSize, radius_search, min_neighbors);
         visualizePCL(result);
     }
     //============================= Bilateral Filter (PCL) =================================================================================================================================================================
@@ -85,10 +85,10 @@ int main(int argc, char **argv)
         double sigma_r   = 0.3;
         
         // Before (three args):
-        // applyBilateralFilter(filename, sigma_s, sigma_r);
+        // applyBilateralFilter(filePath, sigma_s, sigma_r);
         
         // After (four args):
-        PCLResult result = applyBilateralFilter(filename, voxelSize, sigma_s, sigma_r);
+        PCLResult result = applyBilateralFilter(filePath, voxelSize, sigma_s, sigma_r);
             
         visualizePCL(result);
 
