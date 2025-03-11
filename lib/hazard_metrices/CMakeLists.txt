@@ -11,7 +11,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Open3D REQUIRED)
 
-find_package(PCL 1.4 REQUIRED COMPONENTS common filters io visualization segmentation surface integral_image_normal region_growing)
+find_package(PCL 1.15 REQUIRED COMPONENTS common filters io visualization segmentation surface integral_image_normal region_growing features)
+message(STATUS "PCL_VERSION: ${PCL_VERSION}")
 include_directories(${PCL_INCLUDE_DIRS})
 add_definitions(${PCL_DEFINITIONS})
 
@@ -35,7 +36,7 @@ endif()
 # ----------------------------------------------------------------------------
 include_directories(
     /usr/local/include/eigen3
-    /usr/local/include/pcl-1.14
+    /usr/local/include/pcl-1.15
 )
 
 # ----------------------------------------------------------------------------

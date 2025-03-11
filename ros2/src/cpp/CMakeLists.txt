@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Find required packages.
 find_package(yaml-cpp REQUIRED)
-find_package(PCL REQUIRED)
+find_package(PCL 1.15 REQUIRED)
 find_package(Open3D REQUIRED)
 
 find_package(octomap REQUIRED)  # Sets OCTOMAP_INCLUDE_DIRS & OCTOMAP_LIBRARIES

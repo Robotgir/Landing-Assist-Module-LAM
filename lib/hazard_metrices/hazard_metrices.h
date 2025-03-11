@@ -43,6 +43,8 @@
 #include <../common/common.h>
 #include <variant>
 
+#include <pcl/features/normal_3d_omp.h>
+
 using PointT = pcl::PointXYZI;
 using PointCloudT = pcl::PointCloud<PointT>;
 
@@ -58,20 +60,88 @@ using Open3DCloudInput = std::variant<std::string, std::shared_ptr<open3d::geome
 //======================================PCA (Principle Component Analysis)(PCL)==========================================================================================================
 
 
-inline PCLResult PrincipleComponentAnalysis(const CloudInput<PointT>& input,
-                                              float voxelSize = 0.45f,
-                                              float angleThreshold = 20.0f,
-                                              int k = 10) {
-  PCLResult result;
-  result.pcl_method = "Principal Component Analysis";
-  result.inlier_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
-  result.outlier_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
-  result.downsampled_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
+// inline PCLResult PrincipleComponentAnalysis(const CloudInput<PointT>& input,
+//                                               float voxelSize = 0.45f,
+//                                               float angleThreshold = 20.0f,
+//                                               int k = 10) {
+//   PCLResult result;
+//   result.pcl_method = "Principal Component Analysis";
+//   result.inlier_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
+//   result.outlier_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
+//   result.downsampled_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
 
-  // Remove previous declarations and use structured binding with new variable names.
+//   // Remove previous declarations and use structured binding with new variable names.
+//   auto [loadedCloud, doDownsample] = loadPCLCloud<PointT>(input);
+
+//   // Downsample if the input was a file path.
+//   if (doDownsample) {
+//     downsamplePointCloudPCL<PointT>(loadedCloud, result.downsampled_cloud, voxelSize);
+//     std::cout << "Downsampled cloud has " << result.downsampled_cloud->points.size() << " points." << std::endl;
+//   } else {
+//     result.downsampled_cloud = loadedCloud;
+//   }
+
+//   pcl::KdTreeFLANN<PointT> tree;
+//   tree.setInputCloud(result.downsampled_cloud);
+
+//   // Compute normals.
+//   pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
+//   normals->points.resize(result.downsampled_cloud->points.size());
+//   normals->width = result.downsampled_cloud->width;
+//   normals->height = result.downsampled_cloud->height;
+//   normals->is_dense = result.downsampled_cloud->is_dense;
+
+//   std::vector<int> neighbor_indices(k);
+//   std::vector<float> sqr_distances(k);
+
+//   for (size_t i = 0; i < result.downsampled_cloud->points.size(); i++) {
+//     if (tree.nearestKSearch(result.downsampled_cloud->points[i], k, neighbor_indices, sqr_distances) > 0) {
+//       Eigen::Vector4f local_centroid;
+//       pcl::compute3DCentroid(*result.downsampled_cloud, neighbor_indices, local_centroid);
+//       Eigen::Matrix3f covariance;
+//       pcl::computeCovarianceMatrixNormalized(*result.downsampled_cloud, neighbor_indices, local_centroid, covariance);
+//       Eigen::SelfAdjointEigenSolver<Eigen::Matrix3f> solver(covariance);
+//       Eigen::Vector3f normal = solver.eigenvectors().col(0);
+
+//       normals->points[i].normal_x = normal.x();
+//       normals->points[i].normal_y = normal.y();
+//       normals->points[i].normal_z = normal.z();
+
+//       float dot_product = std::fabs(normal.dot(Eigen::Vector3f(0.0f, 0.0f, 1.0f)));
+//       float slope = std::acos(dot_product) * 180.0f / static_cast<float>(M_PI);
+
+//       if (slope <= angleThreshold)
+//         result.inlier_cloud->push_back(result.downsampled_cloud->points[i]);
+//       else
+//         result.outlier_cloud->push_back(result.downsampled_cloud->points[i]);
+//     } else {
+//       normals->points[i].normal_x = std::numeric_limits<float>::quiet_NaN();
+//       normals->points[i].normal_y = std::numeric_limits<float>::quiet_NaN();
+//       normals->points[i].normal_z = std::numeric_limits<float>::quiet_NaN();
+//     }
+//   }
+//   std::cout << "Inliers (slope ≤ " << angleThreshold << "°): " << result.inlier_cloud->size() << std::endl;
+//   std::cout << "Outliers (slope > " << angleThreshold << "°): " << result.outlier_cloud->size() << std::endl;
+
+//   return result;
+// }
+
+// template <typename PointT>
+inline PCLResult PrincipleComponentAnalysis(const CloudInput<PointT>& input,
+                                     float voxelSize = 0.45f,
+                                     float angleThreshold = 20.0f,
+                                     int k = 10)
+{
+  PCLResult result;
+  result.pcl_method = "Principal Component Analysis (using NormalEstimationOMP)";
+  result.inlier_cloud = pcl::make_shared<PointCloudT>();
+  result.outlier_cloud = pcl::make_shared<PointCloudT>();
+  result.downsampled_cloud = pcl::make_shared<PointCloudT>();
+
+  // Load the cloud and determine if downsampling is needed.
+  // (Assumes loadPCLCloud returns a pair: <loadedCloud, doDownsample>)
   auto [loadedCloud, doDownsample] = loadPCLCloud<PointT>(input);
 
-  // Downsample if the input was a file path.
   if (doDownsample) {
     downsamplePointCloudPCL<PointT>(loadedCloud, result.downsampled_cloud, voxelSize);
     std::cout << "Downsampled cloud has " << result.downsampled_cloud->points.size() << " points." << std::endl;
@@ -79,44 +149,30 @@ inline PCLResult PrincipleComponentAnalysis(const CloudInput<PointT>& input,
     result.downsampled_cloud = loadedCloud;
   }
 
-  pcl::KdTreeFLANN<PointT> tree;
-  tree.setInputCloud(result.downsampled_cloud);
+  // Compute normals in parallel using NormalEstimationOMP.
+  pcl::NormalEstimationOMP<PointT, pcl::Normal> ne;
+  ne.setInputCloud(result.downsampled_cloud);
+  ne.setKSearch(k);
 
-  // Compute normals.
   pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
-  normals->points.resize(result.downsampled_cloud->points.size());
-  normals->width = result.downsampled_cloud->width;
-  normals->height = result.downsampled_cloud->height;
-  normals->is_dense = result.downsampled_cloud->is_dense;
+  ne.compute(*normals);
 
-  std::vector<int> neighbor_indices(k);
-  std::vector<float> sqr_distances(k);
-
-  for (size_t i = 0; i < result.downsampled_cloud->points.size(); i++) {
-    if (tree.nearestKSearch(result.downsampled_cloud->points[i], k, neighbor_indices, sqr_distances) > 0) {
-      Eigen::Vector4f local_centroid;
-      pcl::compute3DCentroid(*result.downsampled_cloud, neighbor_indices, local_centroid);
-      Eigen::Matrix3f covariance;
-      pcl::computeCovarianceMatrixNormalized(*result.downsampled_cloud, neighbor_indices, local_centroid, covariance);
-      Eigen::SelfAdjointEigenSolver<Eigen::Matrix3f> solver(covariance);
-      Eigen::Vector3f normal = solver.eigenvectors().col(0);
-
-      normals->points[i].normal_x = normal.x();
-      normals->points[i].normal_y = normal.y();
-      normals->points[i].normal_z = normal.z();
-
-      float dot_product = std::fabs(normal.dot(Eigen::Vector3f(0.0f, 0.0f, 1.0f)));
-      float slope = std::acos(dot_product) * 180.0f / static_cast<float>(M_PI);
-
-      if (slope <= angleThreshold)
-        result.inlier_cloud->push_back(result.downsampled_cloud->points[i]);
-      else
-        result.outlier_cloud->push_back(result.downsampled_cloud->points[i]);
-    } else {
-      normals->points[i].normal_x = std::numeric_limits<float>::quiet_NaN();
-      normals->points[i].normal_y = std::numeric_limits<float>::quiet_NaN();
-      normals->points[i].normal_z = std::numeric_limits<float>::quiet_NaN();
+  // Classify points based on the computed normals and the angle threshold.
+  for (size_t i = 0; i < normals->points.size(); i++) {
+    Eigen::Vector3f normal(normals->points[i].normal_x,
+                           normals->points[i].normal_y,
+                           normals->points[i].normal_z);
+    // Check for invalid normal values.
+    if (std::isnan(normal.norm()) || normal.norm() == 0) {
+      result.outlier_cloud->push_back(result.downsampled_cloud->points[i]);
+      continue;
     }
+    float dot_product = std::fabs(normal.dot(Eigen::Vector3f(0.0f, 0.0f, 1.0f)));
+    float slope = std::acos(dot_product) * 180.0f / static_cast<float>(M_PI);
+    if (slope <= angleThreshold)
+      result.inlier_cloud->push_back(result.downsampled_cloud->points[i]);
+    else
+      result.outlier_cloud->push_back(result.downsampled_cloud->points[i]);
   }
   std::cout << "Inliers (slope ≤ " << angleThreshold << "°): " << result.inlier_cloud->size() << std::endl;
   std::cout << "Outliers (slope > " << angleThreshold << "°): " << result.outlier_cloud->size() << std::endl;
@@ -411,63 +467,6 @@ inline OPEN3DResult LeastSquaresPlaneFitting(const Open3DCloudInput &input,
     return result;
 }
 
-//====================================Least Squares Plane Fitting (OPEN3D)=======================================================================
-
-// inline OPEN3DResult LeastSquaresPlaneFitting(const std::string &file_path, double voxelSize, double distance_threshold) {
-//     // Load the point cloud from file.
-
-//     OPEN3DResult result;
-//     result.open3d_method ="LEAST SQUARE PLANE FITTING";
-
-//     int ransac_n =3;
-//     int num_iterations = 1000;
-//     auto [centroid,downsampled_pcd] = RansacPlaneAndComputeCentroid(file_path, voxelSize, distance_threshold, ransac_n, num_iterations);
-
-//     // Compute the covariance matrix.
-//     Eigen::Matrix3d covariance = Eigen::Matrix3d::Zero();
-//     for (const auto &pt : downsampled_pcd->points_) {
-//         Eigen::Vector3d diff = pt - centroid;
-//         covariance += diff * diff.transpose();
-//     }
-
-//     // Compute the eigen decomposition of the covariance matrix.
-//     Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> eigen_solver(covariance);
-//     if (eigen_solver.info() != Eigen::Success) {
-//         throw std::runtime_error("Eigen decomposition failed.");
-//     }
-//     // The eigenvector corresponding to the smallest eigenvalue is the plane normal.
-//     Eigen::Vector3d normal = eigen_solver.eigenvectors().col(0);
-//     normal.normalize();
-
-//     // Compute the plane equation: n.dot(x) + d = 0.
-//     double d = -normal.dot(centroid);
-//     std::cout << "Fitted plane: normal = " << normal.transpose() << ", d = " << d << std::endl;
-
-//     // Separate points into inliers and outliers based on distance from the plane.
-//     auto inliers = std::make_shared<open3d::geometry::PointCloud>();
-//     auto outliers = std::make_shared<open3d::geometry::PointCloud>();
-
-//     for (const auto &pt : downsampled_pcd->points_) {
-//         double distance = std::fabs(normal.dot(pt) + d);
-//         if (distance < distance_threshold) {
-//             inliers->points_.push_back(pt);
-//             // Color inliers green.
-//             inliers->colors_.push_back({0.0, 1.0, 0.0});
-//         } else {
-//             outliers->points_.push_back(pt);
-//             // Color outliers red.
-//             outliers->colors_.push_back({1.0, 0.0, 0.0});
-//         }
-//     }
-
-//     std::cout << "Found " << inliers->points_.size() << " inliers and "
-//               << outliers->points_.size() << " outliers." << std::endl;
-//     result.inlier_cloud = inliers;
-//     result.outlier_cloud = outliers;
-    
-//     return result;
-//     //return std::make_tuple(inliers, outliers);
-// }
 
 //=======================================Least of Median Square Plane Fitting (PCL)=======================================================================
 
@@ -637,126 +636,130 @@ return result;
 }
 
 
-//==========================REgion growing segmentation function that can accept both cloud and file path ==================================
+//==========================Region growing segmentation function that can accept both cloud and file path ==================================
+
 
 inline PCLResult regionGrowingSegmentation(
   const CloudInput<PointT> &input,
-  float voxelSize=0.45,
-  float angleThreshold = 10.0f,
-  int min_cluster_size = 50,         // Minimum number of points per cluster.
-  int max_cluster_size = 1000000,      // Maximum number of points per cluster.
-  int number_of_neighbours = 30,       // Nearest neighbours used in region growing.
-  int normal_k_search = 50,            // K nearest neighbors for normal estimation.
-  float smoothness_threshold = 2.0 / 180.0 * M_PI,
-  float curvature_threshold = 0.9
-  )
+  float voxelSize = 0.45f,
+  float angleThreshold = 15.0f,
+  int min_cluster_size = 10,         // Minimum number of points per cluster.
+  int max_cluster_size = 10000000,    // Maximum number of points per cluster.
+  int number_of_neighbours = 30,     // Nearest neighbors used in region growing.
+  int normal_k_search = 50,          // K nearest neighbors for normal estimation.
+  float smoothness_threshold = 2.0f / 180.0f * M_PI,
+  float curvature_threshold = 0.9f
+)
 {
+  // Initialize the result struct.
+  PCLResult result;
 
-// Initialize the result struct.
-PCLResult result;
+  // Load the pointcloud.
+  auto [cloud, performDownsampling] = loadPCLCloud<PointT>(input);
 
-// Load the pointcloud
-auto [cloud, performDownsampling] = loadPCLCloud<PointT>(input);
-
-// Downsample if the input was a file path.
-if (performDownsampling)
-{
-// Assume downsamplePointCloudPCL is defined elsewhere.
-downsamplePointCloudPCL<PointT>(cloud, result.downsampled_cloud, voxelSize);
-std::cout << "Downsampled cloud has " << result.downsampled_cloud->points.size() << " points." << std::endl;
-}
-else
-{
-result.downsampled_cloud = cloud;
-}
-
-
-
-// Remove any NaN points.
-std::vector<int> indices;
-pcl::removeNaNFromPointCloud(*result.downsampled_cloud, *result.downsampled_cloud, indices);
-
-// Estimate normals on the cloud.
-pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
-pcl::search::Search<PointT>::Ptr tree(new pcl::search::KdTree<PointT>);
-pcl::NormalEstimation<pcl::PointXYZI, pcl::Normal> normal_estimator;
-normal_estimator.setSearchMethod(tree);
-normal_estimator.setInputCloud(result.downsampled_cloud);
-normal_estimator.setKSearch(normal_k_search);
-normal_estimator.compute(*normals);
-
-// Use the indices from NaN removal as valid indices.
-pcl::IndicesPtr valid_indices(new std::vector<int>(indices));
-
-// Set up region growing segmentation.
-pcl::RegionGrowing<pcl::PointXYZI, pcl::Normal> reg;
-reg.setMinClusterSize(min_cluster_size);
-reg.setMaxClusterSize(max_cluster_size);
-reg.setSearchMethod(tree);
-reg.setNumberOfNeighbours(number_of_neighbours);
-reg.setInputCloud(result.downsampled_cloud);
-reg.setIndices(valid_indices);
-reg.setInputNormals(normals);
-reg.setSmoothnessThreshold(smoothness_threshold);
-reg.setCurvatureThreshold(curvature_threshold);
-
-// Extract clusters.
-std::vector<pcl::PointIndices> clusters;
-reg.extract(clusters);
-std::cout << "Found " << clusters.size() << " clusters." << std::endl;
-
-// Containers for inliers and outliers.
-pcl::PointCloud<PointT>::Ptr inliers_cloud(new pcl::PointCloud<PointT>);
-pcl::PointCloud<PointT>::Ptr outliers_cloud(new pcl::PointCloud<PointT>);
-
-// Global vertical axis (assumed here as the Z-axis).
-Eigen::Vector3f vertical(0.0f, 0.0f, 1.0f);
-float horizontal_dot_threshold = std::cos(angleThreshold * M_PI / 180.0f);
-
-// Process clusters: determine whether each cluster is horizontal.
-for (const auto &cluster : clusters) {
-  Eigen::Vector3f avg_normal(0.0f, 0.0f, 0.0f);
-  for (const auto &idx : cluster.indices) {
-    const auto &n = normals->points[idx];
-    avg_normal += Eigen::Vector3f(n.normal_x, n.normal_y, n.normal_z);
-  }
-  if (!cluster.indices.empty())
-    avg_normal /= static_cast<float>(cluster.indices.size());
-  if (avg_normal.norm() != 0)
-    avg_normal.normalize();
-
-  float dot = std::fabs(avg_normal.dot(vertical));
-  if (dot >= horizontal_dot_threshold) {
-    // Cluster is horizontal.
-    for (const auto &idx : cluster.indices)
-      inliers_cloud->points.push_back(result.downsampled_cloud->points[idx]);
+  // Downsample if the input was a file path.
+  if (performDownsampling) {
+    downsamplePointCloudPCL<PointT>(cloud, result.downsampled_cloud, voxelSize);
+    std::cout << "Downsampled cloud has " << result.downsampled_cloud->points.size() << " points." << std::endl;
   } else {
-    // Cluster is inclined.
-    for (const auto &idx : cluster.indices)
-      outliers_cloud->points.push_back(result.downsampled_cloud->points[idx]);
+    result.downsampled_cloud = cloud;
   }
+
+  // Remove any NaN points.
+  std::vector<int> indices;
+  pcl::removeNaNFromPointCloud(*result.downsampled_cloud, *result.downsampled_cloud, indices);
+
+  // ------------------------------------------------------------------------
+  // Compute normals in parallel using NormalEstimationOMP
+  // ------------------------------------------------------------------------
+  pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
+  pcl::search::Search<PointT>::Ptr tree(new pcl::search::KdTree<PointT>);
+
+  pcl::NormalEstimationOMP<PointT, pcl::Normal> normal_estimator;
+  // Optionally, specify the number of threads (0 uses all available threads):
+  // normal_estimator.setNumberOfThreads(4);
+  normal_estimator.setSearchMethod(tree);
+  normal_estimator.setInputCloud(result.downsampled_cloud);
+  normal_estimator.setKSearch(normal_k_search);
+  normal_estimator.compute(*normals);
+
+  // Use the indices from NaN removal as valid indices.
+  pcl::IndicesPtr valid_indices(new std::vector<int>(indices));
+
+  // Set up region growing segmentation.
+  pcl::RegionGrowing<PointT, pcl::Normal> reg;
+  reg.setMinClusterSize(min_cluster_size);
+  reg.setMaxClusterSize(max_cluster_size);
+  reg.setSearchMethod(tree);
+  reg.setNumberOfNeighbours(number_of_neighbours);
+  reg.setInputCloud(result.downsampled_cloud);
+  reg.setIndices(valid_indices);
+  reg.setInputNormals(normals);
+  reg.setSmoothnessThreshold(smoothness_threshold);
+  reg.setCurvatureThreshold(curvature_threshold);
+
+  // Extract clusters.
+  std::vector<pcl::PointIndices> clusters;
+  reg.extract(clusters);
+  std::cout << "Found " << clusters.size() << " clusters." << std::endl;
+
+  // Containers for inliers and outliers.
+  pcl::PointCloud<PointT>::Ptr inliers_cloud(new pcl::PointCloud<PointT>);
+  pcl::PointCloud<PointT>::Ptr outliers_cloud(new pcl::PointCloud<PointT>);
+
+  // Global vertical axis (assumed here as the Z-axis).
+  Eigen::Vector3f vertical(0.0f, 0.0f, 1.0f);
+  float horizontal_dot_threshold = std::cos(angleThreshold * M_PI / 180.0f);
+
+  // Process clusters: determine whether each cluster is "horizontal" or not.
+  for (const auto &cluster : clusters) {
+    Eigen::Vector3f avg_normal(0.0f, 0.0f, 0.0f);
+    for (const auto &idx : cluster.indices) {
+      const auto &n = normals->points[idx];
+      avg_normal += Eigen::Vector3f(n.normal_x, n.normal_y, n.normal_z);
+    }
+    if (!cluster.indices.empty())
+      avg_normal /= static_cast<float>(cluster.indices.size());
+    if (avg_normal.norm() != 0)
+      avg_normal.normalize();
+
+    float dot = std::fabs(avg_normal.dot(vertical));
+    if (dot >= horizontal_dot_threshold) {
+      // Cluster is horizontal.
+      for (const auto &idx : cluster.indices) {
+        inliers_cloud->points.push_back(result.downsampled_cloud->points[idx]);
+      }
+    } else {
+      // Cluster is inclined.
+      for (const auto &idx : cluster.indices) {
+        outliers_cloud->points.push_back(result.downsampled_cloud->points[idx]);
+      }
+    }
+  }
+
+  // Add any downsampled points not part of any cluster to outliers.
+  std::set<int> cluster_indices;
+  for (const auto &cluster : clusters) {
+    for (const auto &idx : cluster.indices) {
+      cluster_indices.insert(idx);
+    }
+  }
+  for (size_t i = 0; i < result.downsampled_cloud->points.size(); ++i) {
+    if (cluster_indices.find(static_cast<int>(i)) == cluster_indices.end()) {
+      outliers_cloud->points.push_back(result.downsampled_cloud->points[i]);
+    }
+  }
+
+  // Propagate header information.
+  inliers_cloud->header = result.downsampled_cloud->header;
+  outliers_cloud->header = result.downsampled_cloud->header;
+
+  // Build and return the result.
+  result.inlier_cloud = inliers_cloud;
+  result.outlier_cloud = outliers_cloud;
+  result.pcl_method = "REGION GROWING SEGMENTATION (OMP Normals)";
+  return result;
 }
-
-// Add any downsampled points not part of any cluster to outliers.
-std::set<int> cluster_indices;
-for (const auto &cluster : clusters)
-  for (const auto &idx : cluster.indices)
-    cluster_indices.insert(idx);
-for (size_t i = 0; i < result.downsampled_cloud->points.size(); ++i)
-  if (cluster_indices.find(i) == cluster_indices.end())
-    outliers_cloud->points.push_back(result.downsampled_cloud->points[i]);
-
-// Propagate header information.
-inliers_cloud->header = result.downsampled_cloud->header;
-outliers_cloud->header = result.downsampled_cloud->header;
-
-// Build and return the result.
-result.inlier_cloud = inliers_cloud;
-result.outlier_cloud = outliers_cloud;
-result.pcl_method = "REGION GROWING SEGMENTATION";
-return result;
-}
-
 //===============================Calculate Roughness (PCL)====================================================================================
 // Function to calculate roughness based on the PROSAC segmentation result.
 // The function computes the roughness from the downsampled cloud using the plane coefficients.

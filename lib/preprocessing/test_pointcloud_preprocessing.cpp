@@ -152,7 +152,7 @@ TEST(PCLFiltering, ApplyRadiusFilter) {
 
 TEST(PCLFiltering, ApplyBilateralFilter) {
 
-    double voxelSize = 0.05;   
+    double voxelSize = 0.45;   
     double sigma_s = 15.0; // Small point clouds or detailed structures: sigma_s = 1.0 - 5.0 ,Noisy or dense point clouds: sigma_s = 5.0 - 10.0,Large or very noisy point clouds: sigma_s = 10.0 - 15.0
     double sigma_r = 0.3;  //Preserve edges and details: sigma_r = 0.05 - 0.1, Moderate smoothing: sigma_r = 0.1 - 0.2, Heavy denoising (risk of over-smoothing): sigma_r = 0.2 - 0.3
 

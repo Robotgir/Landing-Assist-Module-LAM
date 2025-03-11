@@ -325,7 +325,7 @@ inline OPEN3DResult apply_sor_filter(
 
 inline PCLResult applyRadiusFilter(
     const std::string& file_path,
-    double voxel_size=0.05,
+    double voxel_size=0.45,
     double radius_search=0.9,
     int min_neighbors=40)
 {
