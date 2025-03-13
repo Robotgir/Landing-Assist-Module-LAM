@@ -59,73 +59,6 @@ using Open3DCloudInput = std::variant<std::string, std::shared_ptr<open3d::geome
 
 //======================================PCA (Principle Component Analysis)(PCL)==========================================================================================================
 
-
-// inline PCLResult PrincipleComponentAnalysis(const CloudInput<PointT>& input,
-//                                               float voxelSize = 0.45f,
-//                                               float angleThreshold = 20.0f,
-//                                               int k = 10) {
-//   PCLResult result;
-//   result.pcl_method = "Principal Component Analysis";
-//   result.inlier_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
-//   result.outlier_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
-//   result.downsampled_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
-
-//   // Remove previous declarations and use structured binding with new variable names.
-//   auto [loadedCloud, doDownsample] = loadPCLCloud<PointT>(input);
-
-//   // Downsample if the input was a file path.
-//   if (doDownsample) {
-//     downsamplePointCloudPCL<PointT>(loadedCloud, result.downsampled_cloud, voxelSize);
-//     std::cout << "Downsampled cloud has " << result.downsampled_cloud->points.size() << " points." << std::endl;
-//   } else {
-//     result.downsampled_cloud = loadedCloud;
-//   }
-
-//   pcl::KdTreeFLANN<PointT> tree;
-//   tree.setInputCloud(result.downsampled_cloud);
-
-//   // Compute normals.
-//   pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
-//   normals->points.resize(result.downsampled_cloud->points.size());
-//   normals->width = result.downsampled_cloud->width;
-//   normals->height = result.downsampled_cloud->height;
-//   normals->is_dense = result.downsampled_cloud->is_dense;
-
-//   std::vector<int> neighbor_indices(k);
-//   std::vector<float> sqr_distances(k);
-
-//   for (size_t i = 0; i < result.downsampled_cloud->points.size(); i++) {
-//     if (tree.nearestKSearch(result.downsampled_cloud->points[i], k, neighbor_indices, sqr_distances) > 0) {
-//       Eigen::Vector4f local_centroid;
-//       pcl::compute3DCentroid(*result.downsampled_cloud, neighbor_indices, local_centroid);
-//       Eigen::Matrix3f covariance;
-//       pcl::computeCovarianceMatrixNormalized(*result.downsampled_cloud, neighbor_indices, local_centroid, covariance);
-//       Eigen::SelfAdjointEigenSolver<Eigen::Matrix3f> solver(covariance);
-//       Eigen::Vector3f normal = solver.eigenvectors().col(0);
-
-//       normals->points[i].normal_x = normal.x();
-//       normals->points[i].normal_y = normal.y();
-//       normals->points[i].normal_z = normal.z();
-
-//       float dot_product = std::fabs(normal.dot(Eigen::Vector3f(0.0f, 0.0f, 1.0f)));
-//       float slope = std::acos(dot_product) * 180.0f / static_cast<float>(M_PI);
-
-//       if (slope <= angleThreshold)
-//         result.inlier_cloud->push_back(result.downsampled_cloud->points[i]);
-//       else
-//         result.outlier_cloud->push_back(result.downsampled_cloud->points[i]);
-//     } else {
-//       normals->points[i].normal_x = std::numeric_limits<float>::quiet_NaN();
-//       normals->points[i].normal_y = std::numeric_limits<float>::quiet_NaN();
-//       normals->points[i].normal_z = std::numeric_limits<float>::quiet_NaN();
-//     }
-//   }
-//   std::cout << "Inliers (slope ≤ " << angleThreshold << "°): " << result.inlier_cloud->size() << std::endl;
-//   std::cout << "Outliers (slope > " << angleThreshold << "°): " << result.outlier_cloud->size() << std::endl;
-
-//   return result;
-// }
-
 // template <typename PointT>
 inline PCLResult PrincipleComponentAnalysis(const CloudInput<PointT>& input,
                                      float voxelSize = 0.45f,
@@ -760,6 +693,81 @@ inline PCLResult regionGrowingSegmentation(
   result.pcl_method = "REGION GROWING SEGMENTATION (OMP Normals)";
   return result;
 }
+
+//============================== Check SLZ -r ================================================================================================
+PCLResult findSafeLandingZones(const CloudInput<PointT>& flatInliersInput,
+  const CloudInput<PointT>& originalCloudInput,
+  double landingRadius,
+  double removalThreshold = 0.01f)
+{
+PCLResult result;
+// Initialize the struct clouds.
+result.downsampled_cloud.reset(new PointCloudT);
+result.inlier_cloud.reset(new PointCloudT);   // Will store safe landing candidates (subset of flat inliers)
+result.outlier_cloud.reset(new PointCloudT);    // Will store obstacles
+result.plane_coefficients.reset(new pcl::ModelCoefficients); // Populate if available
+result.pcl_method = "SafeLandingZoneDetection";
+
+// Load flat inlier cloud.
+auto [flatInliers, performDownsamplingFlat] = loadPCLCloud<PointT>(flatInliersInput);
+if (!flatInliers) {
+std::cerr << "Failed to load flat inlier cloud." << std::endl;
+return result;
+}
+std::cout << "Loaded flat inlier cloud with " << flatInliers->size() << " points." << std::endl;
+
+// Load original point cloud.
+auto [originalCloud, performDownsamplingOrig] = loadPCLCloud<PointT>(originalCloudInput);
+if (!originalCloud) {
+std::cerr << "Failed to load original point cloud." << std::endl;
+return result;
+}
+std::cout << "Loaded original cloud with " << originalCloud->size() << " points." << std::endl;
+result.downsampled_cloud = originalCloud; // For visualization, we use the original (or downsampled) cloud.
+
+// Build a KD-tree for the flat inlier cloud to remove flat points from original cloud.
+pcl::KdTreeFLANN<PointT> flatKdTree;
+flatKdTree.setInputCloud(flatInliers);
+
+// Create an obstacle cloud by removing points from originalCloud that lie in the flat area.
+for (const auto& pt : originalCloud->points)
+{
+std::vector<int> flatIndices;
+std::vector<float> flatDistances;
+// Use a small radius to check if the point is part of the flat area.
+if (flatKdTree.radiusSearch(pt, removalThreshold, flatIndices, flatDistances) == 0)
+{
+// Not found in flatInliers; add to obstacle cloud.
+result.outlier_cloud->points.push_back(pt);
+}
+}
+result.outlier_cloud->width = static_cast<uint32_t>(result.outlier_cloud->points.size());
+result.outlier_cloud->height = 1;
+std::cout << "Created obstacle cloud with " << result.outlier_cloud->size() << " points." << std::endl;
+
+// Build a KD-tree for the obstacle cloud for fast radius queries.
+pcl::KdTreeFLANN<PointT> obstacleKdTree;
+obstacleKdTree.setInputCloud(result.outlier_cloud);
+
+// For each candidate point in the flat area, check if obstacles exist within the landing radius.
+for (const auto& candidate : flatInliers->points)
+{
+std::vector<int> obstacleIndices;
+std::vector<float> obstacleDistances;
+int found = obstacleKdTree.radiusSearch(candidate, landingRadius, obstacleIndices, obstacleDistances);
+// If no obstacles are found within landingRadius, mark this candidate as a safe landing zone.
+if (found == 0)
+{
+result.inlier_cloud->points.push_back(candidate);
+}
+}
+result.inlier_cloud->width = static_cast<uint32_t>(result.inlier_cloud->points.size());
+result.inlier_cloud->height = 1;
+std::cout << "Found " << result.inlier_cloud->size() << " safe landing zone candidate points." << std::endl;
+
+return result;
+}
+
 //===============================Calculate Roughness (PCL)====================================================================================
 // Function to calculate roughness based on the PROSAC segmentation result.
 // The function computes the roughness from the downsampled cloud using the plane coefficients.
