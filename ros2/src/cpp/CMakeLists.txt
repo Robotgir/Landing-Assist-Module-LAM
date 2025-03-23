@@ -15,7 +15,7 @@ include_directories(${OCTOMAP_INCLUDE_DIRS})
 
 # Set include directories relative to the current CMakeLists.txt location.
 include_directories(
-  ${CMAKE_CURRENT_SOURCE_DIR}/../../../lib/hazard_metrices
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../../lib
   ${CMAKE_CURRENT_SOURCE_DIR}/../../../lib/preprocessing
 )
 
