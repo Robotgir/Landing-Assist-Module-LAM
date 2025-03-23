@@ -12,7 +12,7 @@ using PointT = pcl::PointXYZI;
 int main(int argc, char **argv)
 {
 
-    std::string config_file = "/home/airsim_user/Landing-Assist-Module-LAM/config/pipeline2Octree.yaml";
+    std::string config_file = "/home/airsim_user/Landing-Assist-Module-LAM/config/pipeline1.yaml";
     // Load YAML configuration.
     YAML::Node config = YAML::LoadFile(config_file);
     YAML::Node params = config["ros__parameters"];
@@ -30,12 +30,12 @@ int main(int argc, char **argv)
     // Load input point cloud using the provided loadPCLCloud function.
     PCLResult result;
     result.downsampled_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
-    auto [loaded_cloud, performDownsampling] = loadPCLCloud<PointT>(pcd_file);
+    auto loaded_cloud = loadPCLCloud<PointT>(pcd_file);
 
     PCLResult final_result;
     final_result.outlier_cloud = loaded_cloud;
 
-    if (performDownsampling && voxel_downsample_pointcloud)
+    if (voxel_downsample_pointcloud)
     {
         // Downsample if necessary (here, using a voxel size of 0.45 as example).
         downsamplePointCloudPCL<PointT>(loaded_cloud, result.downsampled_cloud, voxelSize);
@@ -264,7 +264,7 @@ int main(int argc, char **argv)
             double landingRadius = pipeline[i]["parameters"]["landingRadius"].as<double>();
             double removalThreshold = pipeline[i]["parameters"]["removalThreshold"].as<double>();
             double clusterTolerance = pipeline[i]["parameters"]["clusterTolerance"].as<double>();
-            auto [environment_cloud, performDownsampling] = loadPCLCloud<PointT>(pcd_file);
+            auto environment_cloud = loadPCLCloud<PointT>(pcd_file);
             std::string visualization = pipeline[i]["parameters"]["visualization"].as<std::string>();
             PCLResult SLZResult = findSafeLandingZones(current_cloud,
                                                        environment_cloud,

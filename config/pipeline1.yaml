@@ -1,7 +1,7 @@
 ros__parameters:
   # pcd_file_path: "/home/airsim_user/Landing-Assist-Module-LAM/test.pcd"
   pcd_file_path: "/home/airsim_user/Landing-Assist-Module-LAM/test.pcd"
-  visualize: false #visualization for individual function
+  visualize: true #visualization for individual function
   final_visualize: true #visualizing final result
   final_result_visualization: "both" # can choose both ,inlier_cloud,outlier_cloud to visualize
   voxel_size: 0.45
@@ -38,14 +38,14 @@ ros__parameters:
         maxIterations: 1000
         visualization: "both"
     - step: "LMEDS"
-      enabled: false
+      enabled: true
       parameters:
         voxel_size: 0.05
         distanceThreshold: 1.9
         maxIterations: 1000
         visualization: "both"
     - step: "PCA"
-      enabled: false
+      enabled: true
       parameters:
         voxelSize: 0.05
         angleThreshold: 10.0

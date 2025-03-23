@@ -7,8 +7,8 @@
 bool g_skipVisualization = false;
 
 // Input file path (adjust if needed)
-static const std::string file_path = "/home/airsim_user/Landing-Assist-Module-LAM/test.pcd";
-auto [filePath, performDownsampling] = loadPCLCloud<PointT>(file_path);
+static const std::string filePath = "/home/airsim_user/Landing-Assist-Module-LAM/test.pcd";
+
 //--------------------------------------------------------------------------
 // Test 1: PCA / Normal Estimation / Classification (PCL)
 //--------------------------------------------------------------------------
@@ -42,7 +42,7 @@ TEST(HazardMetricesTest, TestOpen3D_RANSAC) {
     int num_iterations = 1000;
 
     // Call the Open3D RANSAC segmentation function.
-    OPEN3DResult result = RansacPlaneSegmentation(file_path, voxel_size, distance_threshold, ransac_n, num_iterations);
+    OPEN3DResult result = RansacPlaneSegmentation(filePath, voxel_size, distance_threshold, ransac_n, num_iterations);
 
     if (!g_skipVisualization) {
         // Visualize the segmentation result; press 'q' to close the window.
@@ -108,7 +108,7 @@ TEST(HazardMetricesTest, TestLeastSquaresPlaneFitting) {
     double distance_threshold = 1.85;
 
     // Call the Least Squares plane fitting function.
-    OPEN3DResult result = LeastSquaresPlaneFitting(file_path, voxel_size, distance_threshold);
+    OPEN3DResult result = LeastSquaresPlaneFitting(filePath, voxel_size, distance_threshold);
 
     if (!g_skipVisualization) {
         visualizeOPEN3D(result);
@@ -197,7 +197,7 @@ TEST(HazardMetricesTest, TestRoughnessPCL) {
     int maxIterations = 200;
 
     // Perform PROSAC segmentation (PCL-based)
-    PCLResult result = performPROSAC(file_path, voxel_size, distanceThreshold, maxIterations);
+    PCLResult result = performPROSAC(filePath, voxel_size, distanceThreshold, maxIterations);
 
     // Calculate roughness using the PCL-based method.
     double roughness = calculateRoughnessPCL(result);
@@ -217,7 +217,7 @@ TEST(HazardMetricesTest, TestRoughnessOpen3D) {
     int num_iterations = 1000;
 
     // Perform RANSAC segmentation (Open3D-based)
-    OPEN3DResult segmentation_result = RansacPlaneSegmentation(file_path, voxel_size, distance_threshold, ransac_n, num_iterations);
+    OPEN3DResult segmentation_result = RansacPlaneSegmentation(filePath, voxel_size, distance_threshold, ransac_n, num_iterations);
 
     // Calculate roughness using the Open3D-based method.
     double roughness = calculateRoughnessOpen3D(segmentation_result);
@@ -236,7 +236,7 @@ TEST(HazardMetricesTest, TestReliefPCL) {
     int maxIterations = 200;
 
     // Perform PROSAC segmentation (PCL-based)
-    PCLResult result = performPROSAC(file_path, voxel_size, distanceThreshold, maxIterations);
+    PCLResult result = performPROSAC(filePath, voxel_size, distanceThreshold, maxIterations);
 
     // Calculate relief using the PCL-based method.
     double relief = calculateReliefPCL(result);
@@ -256,7 +256,7 @@ TEST(HazardMetricesTest, TestReliefOpen3D) {
     int num_iterations = 1000;
 
     // Perform RANSAC segmentation (Open3D-based)
-    OPEN3DResult segmentation_result = RansacPlaneSegmentation(file_path, voxel_size, distance_threshold, ransac_n, num_iterations);
+    OPEN3DResult segmentation_result = RansacPlaneSegmentation(filePath, voxel_size, distance_threshold, ransac_n, num_iterations);
 
     // Calculate relief using the Open3D-based method.
     double relief = calculateReliefOpen3D(segmentation_result);
@@ -275,7 +275,7 @@ TEST(HazardMetricesTest, TestDataConfidencePCL) {
     int maxIterations = 200;
 
     // Perform PROSAC segmentation (PCL-based)
-    PCLResult result = performPROSAC(file_path, voxel_size, distanceThreshold, maxIterations);
+    PCLResult result = performPROSAC(filePath, voxel_size, distanceThreshold, maxIterations);
 
     // Calculate data confidence using the PCL-based method.
     double data_confidence = calculateDataConfidencePCL(result);
@@ -295,7 +295,7 @@ TEST(HazardMetricesTest, TestDataConfidenceOpen3D) {
     int num_iterations = 1000;
 
     // Perform RANSAC segmentation (Open3D-based)
-    OPEN3DResult segmentation_result = RansacPlaneSegmentation(file_path, voxel_size, distance_threshold, ransac_n, num_iterations);
+    OPEN3DResult segmentation_result = RansacPlaneSegmentation(filePath, voxel_size, distance_threshold, ransac_n, num_iterations);
 
     // Calculate data confidence using the Open3D-based method.
     double data_confidence = calculateDataConfidenceOpen3D(segmentation_result);

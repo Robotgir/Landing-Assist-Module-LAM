@@ -78,15 +78,10 @@ inline PCLResult PrincipleComponentAnalysis(const CloudInput<PointT>& input,
   result.downsampled_cloud = pcl::make_shared<PointCloudT>();
 
   // Load the cloud and determine if downsampling is needed.
-  // (Assumes loadPCLCloud returns a pair: <loadedCloud, doDownsample>)
-  auto [loadedCloud, doDownsample] = loadPCLCloud<PointT>(input);
+  auto cloud = loadPCLCloud<PointT>(input);
 
-  if (doDownsample) {
-    downsamplePointCloudPCL<PointT>(loadedCloud, result.downsampled_cloud, voxelSize);
-    std::cout << "Downsampled cloud has " << result.downsampled_cloud->points.size() << " points." << std::endl;
-  } else {
-    result.downsampled_cloud = loadedCloud;
-  }
+  result.downsampled_cloud = cloud;
+ 
 
   // Compute normals in parallel using NormalEstimationOMP.
   pcl::NormalEstimationOMP<PointT, pcl::Normal> ne;
@@ -138,12 +133,11 @@ inline OPEN3DResult RansacPlaneSegmentation(
 
 
     // Load the point cloud from either the file or the provided pointer.
-    auto [pcd, performDownsampling] = loadOpen3DCloud(input);
+    auto cloud= loadOpen3DCloud(input);
 
     // Downsample the point cloud.
-    result.downsampled_cloud = downSamplePointCloudOpen3d(pcd, voxelSize);
-    std::cout << "Downsampled point cloud now has " << result.downsampled_cloud->points_.size() << " points." << std::endl;
-
+    result.downsampled_cloud = cloud;
+  
     // Ensure the downsampled point cloud has color information.
     if (!result.downsampled_cloud->HasColors()) {
         result.downsampled_cloud->colors_.resize(result.downsampled_cloud->points_.size(), Eigen::Vector3d(1, 1, 1));
@@ -206,19 +200,9 @@ result.downsampled_cloud = pcl::make_shared<PointCloudT>();
 result.inlier_cloud = pcl::make_shared<PointCloudT>();
 result.outlier_cloud = pcl::make_shared<PointCloudT>();
 
-auto [cloud, performDownsampling] = loadPCLCloud<PointT>(input);
-
-// Downsample if the input was a file path.
-if (performDownsampling)
-{
-// Assume downsamplePointCloudPCL is defined elsewhere.
-downsamplePointCloudPCL<PointT>(cloud, result.downsampled_cloud, voxelSize);
-std::cout << "Downsampled cloud has " << result.downsampled_cloud->points.size() << " points." << std::endl;
-}
-else
-{
+auto cloud= loadPCLCloud<PointT>(input);
 result.downsampled_cloud = cloud;
-}
+
 
 // Set up RANSAC segmentation for a plane model.
 pcl::SACSegmentation<PointT> seg;
@@ -272,19 +256,9 @@ inline PCLResult performPROSAC(const CloudInput<PointT> &input,
   result.inlier_cloud = pcl::make_shared<PointCloudT>();
   result.outlier_cloud = pcl::make_shared<PointCloudT>();
 
-  auto [cloud, performDownsampling] = loadPCLCloud<PointT>(input);
-
-  // Downsample if the input was a file path.
-  if (performDownsampling)
-  {
-  // Assume downsamplePointCloudPCL is defined elsewhere.
-  downsamplePointCloudPCL<PointT>(cloud, result.downsampled_cloud, voxelSize);
-  std::cout << "Downsampled cloud has " << result.downsampled_cloud->points.size() << " points." << std::endl;
-  }
-  else
-  {
+  auto cloud = loadPCLCloud<PointT>(input);
   result.downsampled_cloud = cloud;
-  }
+ 
 
   // If detecting a table or ground plane → SACMODEL_PLANE + SAC_RANSAC
   // If extracting pipes or poles → SACMODEL_CYLINDER + SAC_RANSAC
@@ -338,7 +312,7 @@ RansacPlaneAndComputeCentroid(const Open3DCloudInput &input,
                               int ransac_n,
                               int num_iterations) {
     // Load the point cloud from the input.
-    auto [pcd, performDownsampling] = loadOpen3DCloud(input);
+    // pcd = loadOpen3DCloud(input);
     
     // Run RANSAC segmentation (using our overloaded version that accepts Open3DCloudInput).
     OPEN3DResult result = RansacPlaneSegmentation(input, voxelSize, distance_threshold, ransac_n, num_iterations);
@@ -427,19 +401,9 @@ inline PCLResult performLMEDS(const CloudInput<PointT> &input,
   result.inlier_cloud = pcl::make_shared<PointCloudT>();
   result.outlier_cloud = pcl::make_shared<PointCloudT>();
 
-  auto [cloud, performDownsampling] = loadPCLCloud<PointT>(input);
-
-  // Downsample if the input was a file path.
-  if (performDownsampling)
-  {
-  // Assume downsamplePointCloudPCL is defined elsewhere.
-  downsamplePointCloudPCL<PointT>(cloud, result.downsampled_cloud, voxelSize);
-  std::cout << "Downsampled cloud has " << result.downsampled_cloud->points.size() << " points." << std::endl;
-  }
-  else
-  {
+  auto cloud = loadPCLCloud<PointT>(input);
   result.downsampled_cloud = cloud;
-  }
+ 
 
   // If detecting a table or ground plane → SACMODEL_PLANE + SAC_RANSAC
   // If extracting pipes or poles → SACMODEL_CYLINDER + SAC_RANSAC
@@ -496,22 +460,8 @@ result.pcl_method = "Average3DGradient";
 result.plane_coefficients = pcl::ModelCoefficients::Ptr(new pcl::ModelCoefficients());
 result.downsampled_cloud = pcl::make_shared<PointCloudT>();
 
-auto [cloud, performDownsampling] = loadPCLCloud<PointT>(input);
-
-// Downsample if the input was a file path.
-if (performDownsampling)
-{
-// Assume downsamplePointCloudPCL is defined elsewhere.
-
-downsamplePointCloudPCL<PointT>(cloud, result.downsampled_cloud, voxelSize);
-std::cout << "Downsampled cloud has " << result.downsampled_cloud->points.size() << " points." << std::endl;
-}
-else
-{
+auto cloud = loadPCLCloud<PointT>(input);
 result.downsampled_cloud = cloud;
-}
-
-std::cout << "After voxel downsampling: " << result.downsampled_cloud->points.size() << " points." << std::endl;
 
 // Build a KD-tree for neighbor search.
 pcl::KdTreeFLANN<PointT> kdtree;
@@ -599,15 +549,8 @@ inline PCLResult regionGrowingSegmentation(
   PCLResult result;
 
   // Load the pointcloud.
-  auto [cloud, performDownsampling] = loadPCLCloud<PointT>(input);
-
-  // Downsample if the input was a file path.
-  if (performDownsampling) {
-    downsamplePointCloudPCL<PointT>(cloud, result.downsampled_cloud, voxelSize);
-    std::cout << "Downsampled cloud has " << result.downsampled_cloud->points.size() << " points." << std::endl;
-  } else {
-    result.downsampled_cloud = cloud;
-  }
+  auto cloud= loadPCLCloud<PointT>(input);
+  result.downsampled_cloud = cloud;
 
   // Remove any NaN points.
   std::vector<int> indices;
@@ -726,16 +669,8 @@ inline PCLResult regionGrowingSegmentation2(
 
   // Log: Loading the point cloud.
   std::cout << "Loading point cloud..." << std::endl;
-  auto [cloud, performDownsampling] = loadPCLCloud<PointT>(input);
-
-  // Downsample if needed.
-  if (!performDownsampling) {
-    downsamplePointCloudPCL<PointT>(cloud, result.downsampled_cloud, voxelSize);
-    std::cout << "Downsampled cloud has " << result.downsampled_cloud->points.size() << " points." << std::endl;
-  } else {
-    result.downsampled_cloud = cloud;
-    std::cout << "No downsampling performed." << std::endl;
-  }
+  auto cloud= loadPCLCloud<PointT>(input);
+  result.downsampled_cloud = cloud;
 
   // ------------------------------------------------------------------------
   // Compute normals using NormalEstimationOMP.
@@ -982,7 +917,7 @@ inline PCLResult octreeNeighborhoodPCAFilter1(const CloudInput<PointT>& input,
     srand(time(0));
     
     std::cout << "Loading point cloud..." << std::endl;
-    auto [cloud, performDownsampling] = loadPCLCloud<PointT>(input);
+    auto cloud= loadPCLCloud<PointT>(input);
     if (!cloud || cloud->points.empty()) {
         std::cerr << "Error: Loaded point cloud is empty!" << std::endl;
         PCLResult emptyResult;
@@ -1085,7 +1020,7 @@ inline PCLResult octreeNeighborhoodPCAFilter2(const CloudInput<PointT>& input,
   srand(time(0));
 
   std::cout << "Loading point cloud..." << std::endl;
-  auto [cloud, performDownsampling] = loadPCLCloud<PointT>(input);
+  auto cloud= loadPCLCloud<PointT>(input);
   if (!cloud || cloud->points.empty()) {
   std::cerr << "Error: Loaded point cloud is empty!" << std::endl;
   PCLResult emptyResult;
@@ -1214,7 +1149,7 @@ inline PCLResult octreeNeighborhoodPCAFilter(const CloudInput<PointT>& input,
     srand(time(0));
     
     std::cout << "Loading point cloud..." << std::endl;
-    auto [cloud, performDownsampling] = loadPCLCloud<PointT>(input);
+    auto cloud= loadPCLCloud<PointT>(input);
     if (!cloud || cloud->points.empty()) {
         std::cerr << "Error: Loaded point cloud is empty!" << std::endl;
         PCLResult emptyResult;
@@ -1233,14 +1168,7 @@ inline PCLResult octreeNeighborhoodPCAFilter(const CloudInput<PointT>& input,
     std::cout << "Cloud bounding box (XY): x=[" << minX << ", " << maxX 
               << "], y=[" << minY << ", " << maxY << "]" << std::endl;
     
-    // Downsample the cloud if needed.
-    if (performDownsampling) {
-        downsamplePointCloudPCL<PointT>(cloud, cloud, voxelSize);
-        std::cout << "Downsampled cloud has " << cloud->points.size() << " points." << std::endl;
-    } else {
-        std::cout << "No downsampling performed." << std::endl;
-    }
-
+ 
     // Build the KD-tree using the entire cloud.
     pcl::KdTreeFLANN<PointT> kdtree;
     kdtree.setInputCloud(cloud);
@@ -1391,7 +1319,7 @@ inline PCLResult octreeNeighborhoodPCAFilter3(const CloudInput<PointT>& input,
     srand(time(0));
     
     std::cout << "Loading point cloud..." << std::endl;
-    auto [cloud, performDownsampling] = loadPCLCloud<PointT>(input);
+    auto cloud = loadPCLCloud<PointT>(input);
     if (!cloud || cloud->points.empty()) {
         std::cerr << "Error: Loaded point cloud is empty!" << std::endl;
         PCLResult emptyResult;
@@ -1410,13 +1338,8 @@ inline PCLResult octreeNeighborhoodPCAFilter3(const CloudInput<PointT>& input,
     std::cout << "Cloud bounding box (XY): x=[" << minX << ", " << maxX 
               << "], y=[" << minY << ", " << maxY << "]" << std::endl;
     
-    // Downsample if needed.
-    if (performDownsampling) {
-        downsamplePointCloudPCL<PointT>(cloud, cloud, voxelSize);
-        std::cout << "Downsampled cloud has " << cloud->points.size() << " points." << std::endl;
-    } else {
-        std::cout << "No downsampling performed." << std::endl;
-    }
+
+              
 
     // Build KD-tree for the cloud.
     pcl::KdTreeFLANN<PointT> kdtree;
@@ -1585,7 +1508,7 @@ inline PCLResult findSafeLandingZones(const CloudInput<PointT>& flatInliersInput
   result.pcl_method = "SafeLandingZoneDetection";
 
   // Load flat inlier cloud.
-  auto [flatInliers, performDownsamplingFlat] = loadPCLCloud<PointT>(flatInliersInput);
+  auto flatInliers= loadPCLCloud<PointT>(flatInliersInput);
   if (!flatInliers) {
   std::cerr << "Failed to load flat inlier cloud." << std::endl;
   return result;
@@ -1594,7 +1517,7 @@ inline PCLResult findSafeLandingZones(const CloudInput<PointT>& flatInliersInput
   int maxClusterSize = flatInliers->size();
 
   // Load original point cloud.
-  auto [originalCloud, performDownsamplingOrig] = loadPCLCloud<PointT>(originalCloudInput);
+  auto originalCloud = loadPCLCloud<PointT>(originalCloudInput);
   if (!originalCloud) {
   std::cerr << "Failed to load original point cloud." << std::endl;
   return result;
@@ -1710,7 +1633,7 @@ result.plane_coefficients.reset(new pcl::ModelCoefficients); // Populate if avai
 result.pcl_method = "SafeLandingZoneDetection";
 
 // Load flat inlier cloud.
-auto [flatInliers, performDownsamplingFlat] = loadPCLCloud<PointT>(flatInliersInput);
+auto flatInliers = loadPCLCloud<PointT>(flatInliersInput);
 if (!flatInliers) {
 std::cerr << "Failed to load flat inlier cloud." << std::endl;
 return result;
@@ -1719,7 +1642,7 @@ std::cout << "Loaded flat inlier cloud with " << flatInliers->size() << " points
 int maxClusterSize = flatInliers->size();
 
 // Load original point cloud.
-auto [originalCloud, performDownsamplingOrig] = loadPCLCloud<PointT>(originalCloudInput);
+auto originalCloud = loadPCLCloud<PointT>(originalCloudInput);
 if (!originalCloud) {
 std::cerr << "Failed to load original point cloud." << std::endl;
 return result;

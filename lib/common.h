@@ -183,11 +183,10 @@ inline void downsamplePointCloudPCL(const typename pcl::PointCloud<PointT>::Ptr 
 //=====================================Helper function to load file path or pointcloud ========================
 // Helper function to load the point cloud and return both the cloud and the flag.
 template <typename PointT>
-inline std::pair<typename pcl::PointCloud<PointT>::Ptr, bool> loadPCLCloud(const CloudInput<PointT>& input) {
+inline typename pcl::PointCloud<PointT>::Ptr loadPCLCloud(const CloudInput<PointT>& input) {
     // Create a new point cloud pointer.
     typename pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>);
-    bool performDownsampling = false;
-
+    
     // Check the type of input.
     if (std::holds_alternative<std::string>(input)) {
         // Input is a file path.
@@ -197,20 +196,19 @@ inline std::pair<typename pcl::PointCloud<PointT>::Ptr, bool> loadPCLCloud(const
             exit(EXIT_FAILURE);
         }
         std::cout << "Loaded cloud with " << cloud->points.size() << " points." << std::endl;
-        performDownsampling = true;
     } else {
         // Input is already a point cloud.
         cloud = std::get<typename pcl::PointCloud<PointT>::Ptr>(input);
         std::cout << "Using provided cloud with " << cloud->points.size() << " points." << std::endl;
     }
 
-    return {cloud, performDownsampling};
+    return cloud;
 }
 
 // ======================= Helper function to load an Open3D point cloud from either a file or a provided pointer. =================s
-inline std::pair<std::shared_ptr<open3d::geometry::PointCloud>, bool> loadOpen3DCloud(const Open3DCloudInput &input) {
+inline std::shared_ptr<open3d::geometry::PointCloud> loadOpen3DCloud(const Open3DCloudInput &input) {
     auto cloud = std::make_shared<open3d::geometry::PointCloud>();
-    bool performDownsampling = false;
+
     if (std::holds_alternative<std::string>(input)) {
         std::string file_path = std::get<std::string>(input);
         if (!open3d::io::ReadPointCloud(file_path, *cloud)) {
@@ -218,12 +216,11 @@ inline std::pair<std::shared_ptr<open3d::geometry::PointCloud>, bool> loadOpen3D
             exit(EXIT_FAILURE);
         }
         std::cout << "Loaded Open3D cloud with " << cloud->points_.size() << " points." << std::endl;
-        performDownsampling = true;
     } else {
         cloud = std::get<std::shared_ptr<open3d::geometry::PointCloud>>(input);
         std::cout << "Using provided Open3D cloud with " << cloud->points_.size() << " points." << std::endl;
     }
-    return {cloud, performDownsampling};
+    return cloud;
 }
 
 
