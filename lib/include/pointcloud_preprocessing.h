@@ -98,14 +98,9 @@ inline void Visualize3dGridMap(const std::shared_ptr<open3d::geometry::Geometry>
 
 
 // Function to create a 2D grid map using the GridMinimum filter.
-inline pcl::PointCloud<PointT>::Ptr create2DGridMap(const std::string &filePath, float resolution) {
+inline pcl::PointCloud<PointT>::Ptr create2DGridMap(const CloudInput<PointT>& input, float resolution) {
     // Load input point cloud
-    pcl::PointCloud<PointT>::Ptr input_cloud(new pcl::PointCloud<PointT>());
-    if (pcl::io::loadPCDFile<PointT>(filePath, *input_cloud) == -1) {
-        std::cerr << "ERROR: Could not read file " << filePath << std::endl;
-        return nullptr;
-    }
-    std::cout << "Loaded " << input_cloud->size() << " points from " << filePath << std::endl;
+    auto input_cloud = loadPCLCloud<PointT>(input);
 
     // Create the GridMinimum filter object using the provided resolution.
     // The filter will downsample the point cloud by selecting the minimum z value in each grid cell.
@@ -366,7 +361,7 @@ inline OPEN3DResult apply_sor_filter(
 
     // For SOR filter, downsampled_cloud and plane_model are not applicable.
     result.downsampled_cloud = nullptr;
-    result.plane_model = Eigen::Vector4d(0, 0, 0, 0);
+    result.plane_coefficients = Eigen::Vector4d(0, 0, 0, 0);
 
     return result;
 }

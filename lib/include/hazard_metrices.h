@@ -67,56 +67,157 @@ using Open3DCloudInput = std::variant<std::string, std::shared_ptr<open3d::geome
 
 // template <typename PointT>
 inline PCLResult PrincipleComponentAnalysis(const CloudInput<PointT>& input,
-                                     float voxelSize = 0.45f,
-                                     float angleThreshold = 20.0f,
-                                     int k = 10)
+  float voxelSize = 0.45f,
+  float angleThreshold = 20.0f,
+  int k = 10)
 {
-  PCLResult result;
-  result.pcl_method = "Principal Component Analysis (using NormalEstimationOMP)";
-  result.inlier_cloud = pcl::make_shared<PointCloudT>();
-  result.outlier_cloud = pcl::make_shared<PointCloudT>();
-  result.downsampled_cloud = pcl::make_shared<PointCloudT>();
+PCLResult result;
+result.pcl_method = "Principal Component Analysis (using NormalEstimationOMP)";
+result.inlier_cloud = pcl::make_shared<PointCloudT>();
+result.outlier_cloud = pcl::make_shared<PointCloudT>();
+result.downsampled_cloud = pcl::make_shared<PointCloudT>();
 
-  // Load the cloud and determine if downsampling is needed.
-  auto cloud = loadPCLCloud<PointT>(input);
+// Load the cloud and determine if downsampling is needed.
+auto cloud = loadPCLCloud<PointT>(input);
 
-  result.downsampled_cloud = cloud;
- 
+result.downsampled_cloud = cloud;
 
-  // Compute normals in parallel using NormalEstimationOMP.
-  pcl::NormalEstimationOMP<PointT, pcl::Normal> ne;
-  ne.setInputCloud(result.downsampled_cloud);
-  ne.setKSearch(k);
 
-  pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
-  ne.compute(*normals);
+// Compute normals in parallel using NormalEstimationOMP.
+pcl::NormalEstimationOMP<PointT, pcl::Normal> ne;
+ne.setInputCloud(result.downsampled_cloud);
+ne.setKSearch(k);
 
-  // Classify points based on the computed normals and the angle threshold.
-  for (size_t i = 0; i < normals->points.size(); i++) {
-    Eigen::Vector3f normal(normals->points[i].normal_x,
-                           normals->points[i].normal_y,
-                           normals->points[i].normal_z);
-    // Check for invalid normal values.
-    if (std::isnan(normal.norm()) || normal.norm() == 0) {
-      result.outlier_cloud->push_back(result.downsampled_cloud->points[i]);
-      continue;
-    }
-    float dot_product = std::fabs(normal.dot(Eigen::Vector3f(0.0f, 0.0f, 1.0f)));
-    float slope = std::acos(dot_product) * 180.0f / static_cast<float>(M_PI);
-    if (slope <= angleThreshold)
-      result.inlier_cloud->push_back(result.downsampled_cloud->points[i]);
-    else
-      result.outlier_cloud->push_back(result.downsampled_cloud->points[i]);
-  }
-  std::cout << "Inliers (slope ≤ " << angleThreshold << "°): " << result.inlier_cloud->size() << std::endl;
-  std::cout << "Outliers (slope > " << angleThreshold << "°): " << result.outlier_cloud->size() << std::endl;
+pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
+ne.compute(*normals);
 
-  return result;
+
+// Compute PCA on the entire cloud.
+pcl::PCA<PointT> pca;
+pca.setInputCloud(result.downsampled_cloud);
+Eigen::Matrix3f eigenvectors = pca.getEigenVectors(); // Eigenvectors sorted by descending eigenvalues.
+Eigen::Vector4f mean = pca.getMean();
+
+// Use the eigenvector with the smallest eigenvalue (typically the 3rd column) as the global plane normal.
+Eigen::Vector3f global_normal = eigenvectors.col(2);
+
+// Compute and output the global slope (angle between global_normal and the vertical (0,0,1)).
+float global_dot = std::fabs(global_normal.dot(Eigen::Vector3f(0.0f, 0.0f, 1.0f)));
+float global_slope = std::acos(global_dot) * 180.0f / static_cast<float>(M_PI);
+std::cout << "Global PCA plane slope: " << global_slope << " degrees" << std::endl;
+
+// Compute plane coefficients: Ax + By + Cz + D = 0.
+float A = global_normal(0);
+float B = global_normal(1);
+float C = global_normal(2);
+float D = -(A * mean(0) + B * mean(1) + C * mean(2));
+result.plane_coefficients = std::make_shared<pcl::ModelCoefficients>();
+result.plane_coefficients->values.push_back(A);
+result.plane_coefficients->values.push_back(B);
+result.plane_coefficients->values.push_back(C);
+result.plane_coefficients->values.push_back(D);
+std::cout << "Plane coefficients (A, B, C, D): " << A << ", " << B << ", " << C << ", " << D << std::endl;
+
+// Classify points based on the computed normals and the angle threshold.
+for (size_t i = 0; i < normals->points.size(); i++) {
+Eigen::Vector3f normal(normals->points[i].normal_x,
+normals->points[i].normal_y,
+normals->points[i].normal_z);
+// Check for invalid normal values.
+if (std::isnan(normal.norm()) || normal.norm() == 0) {
+result.outlier_cloud->push_back(result.downsampled_cloud->points[i]);
+continue;
+}
+float dot_product = std::fabs(normal.dot(Eigen::Vector3f(0.0f, 0.0f, 1.0f)));
+float slope = std::acos(dot_product) * 180.0f / static_cast<float>(M_PI);
+if (slope <= angleThreshold)
+result.inlier_cloud->push_back(result.downsampled_cloud->points[i]);
+else
+result.outlier_cloud->push_back(result.downsampled_cloud->points[i]);
+}
+std::cout << "Inliers (slope ≤ " << angleThreshold << "°): " << result.inlier_cloud->size() << std::endl;
+std::cout << "Outliers (slope > " << angleThreshold << "°): " << result.outlier_cloud->size() << std::endl;
+
+return result;
 }
 
-//=========================================== PCA with Octree ========================================================================================
+
+//====================================================================================================================================================
+inline PCLResult PrincipleComponentAnalysis1(const CloudInput<PointT>& input,
+  float voxelSize = 0.45f,
+  float angleThreshold = 20.0f,
+  int k = 10)
+{
+PCLResult result;
+result.pcl_method = "Principal Component Analysis (using PCA global plane as reference)";
+result.inlier_cloud = pcl::make_shared<PointCloudT>();
+result.outlier_cloud = pcl::make_shared<PointCloudT>();
+result.downsampled_cloud = pcl::make_shared<PointCloudT>();
+
+// Load the cloud.
+auto cloud = loadPCLCloud<PointT>(input);
+result.downsampled_cloud = cloud;
+
+// Compute normals in parallel using NormalEstimationOMP.
+pcl::NormalEstimationOMP<PointT, pcl::Normal> ne;
+ne.setInputCloud(result.downsampled_cloud);
+ne.setKSearch(k);
+pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
+ne.compute(*normals);
 
 
+// Compute PCA on the entire cloud.
+pcl::PCA<PointT> pca;
+pca.setInputCloud(result.downsampled_cloud);
+Eigen::Matrix3f eigenvectors = pca.getEigenVectors(); // Eigenvectors sorted by descending eigenvalues.
+Eigen::Vector4f mean = pca.getMean();
+
+// Use the eigenvector with the smallest eigenvalue (typically the 3rd column) as the global plane normal.
+Eigen::Vector3f global_normal = eigenvectors.col(2);
+
+// Compute and output the global slope (angle between global_normal and the vertical (0,0,1)).
+float global_dot = std::fabs(global_normal.dot(Eigen::Vector3f(0.0f, 0.0f, 1.0f)));
+float global_slope = std::acos(global_dot) * 180.0f / static_cast<float>(M_PI);
+std::cout << "Global PCA plane slope: " << global_slope << " degrees" << std::endl;
+
+// Compute plane coefficients: Ax + By + Cz + D = 0.
+float A = global_normal(0);
+float B = global_normal(1);
+float C = global_normal(2);
+float D = -(A * mean(0) + B * mean(1) + C * mean(2));
+result.plane_coefficients = std::make_shared<pcl::ModelCoefficients>();
+result.plane_coefficients->values.push_back(A);
+result.plane_coefficients->values.push_back(B);
+result.plane_coefficients->values.push_back(C);
+result.plane_coefficients->values.push_back(D);
+std::cout << "Plane coefficients (A, B, C, D): " << A << ", " << B << ", " << C << ", " << D << std::endl;
+
+// Now, classify each point based on how its normal compares to the global PCA normal.
+// (This ensures that the slope used for classification comes from the PCA result.)
+for (size_t i = 0; i < normals->points.size(); i++) {
+Eigen::Vector3f point_normal(normals->points[i].normal_x,
+normals->points[i].normal_y,
+normals->points[i].normal_z);
+// Skip invalid normals.
+if (std::isnan(point_normal.norm()) || point_normal.norm() == 0) {
+result.outlier_cloud->push_back(result.downsampled_cloud->points[i]);
+continue;
+}
+// Compute the angle between the point's normal and the global plane normal.
+float dot_product = std::fabs(point_normal.dot(global_normal));
+float angle_diff = std::acos(dot_product) * 180.0f / static_cast<float>(M_PI);
+
+if (angle_diff <= angleThreshold)
+result.inlier_cloud->push_back(result.downsampled_cloud->points[i]);
+else
+result.outlier_cloud->push_back(result.downsampled_cloud->points[i]);
+}
+
+std::cout << "Inliers (angle diff ≤ " << angleThreshold << "°): " << result.inlier_cloud->size() << std::endl;
+std::cout << "Outliers (angle diff > " << angleThreshold << "°): " << result.outlier_cloud->size() << std::endl;
+
+return result;
+}
 
 
 //===========================================RANSAC Plane Segmentation (OPEN3D)=======================================================================
@@ -146,12 +247,12 @@ inline OPEN3DResult RansacPlaneSegmentation(
     // Perform RANSAC plane segmentation.
     // 'SegmentPlane' returns a pair: the plane model and the vector of inlier indices.
     double probability = 0.9999;
-    Eigen::Vector4d plane_model;
+    Eigen::Vector4d plane_coefficients;
     auto [plane, indices] = result.downsampled_cloud->SegmentPlane(distance_threshold, ransac_n, num_iterations, probability);
-    plane_model = plane;
-    result.plane_model = plane_model;
+    plane_coefficients = plane;
+    result.plane_coefficients = plane_coefficients;
 
-    std::cout << "Plane model: " << plane_model.transpose() << std::endl;
+    std::cout << "Plane model: " << plane_coefficients.transpose() << std::endl;
     std::cout << "Found " << indices.size() << " inliers for the plane." << std::endl;
 
     // Create new point clouds for inliers and outliers.
@@ -825,672 +926,6 @@ inline PCLResult regionGrowingSegmentation2(
 }
 
 
-// void calculateNormalsAndCurvature(const CloudInput<PointT> &input) {
-//   // Load the point cloud
-//   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
-//   if (pcl::io::loadPCDFile<pcl::PointXYZ>(filename, *cloud) == -1) {
-//       PCL_ERROR("Couldn't read the file \n");
-//       return;
-//   }
-
-//   // Create a KD-Tree for the point cloud
-//   pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
-//   tree->setInputCloud(cloud);
-
-//   // Create the normal estimation object
-//   pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
-//   ne.setSearchMethod(tree);
-//   ne.setKSearch(number_of_neighbours); // Number of neighbors for normal estimation
-
-//   pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
-//   ne.setInputCloud(cloud);
-//   ne.compute(*normals);
-
-//   // Extract normal vectors and curvature
-//   Eigen::Vector3f normal;
-//   float curvature;
-
-//   std::cout << "Normal Vectors and Curvatures of the first 5 points:" << std::endl;
-//   for (size_t i = 0; i < 5; ++i) {
-//       // Normal vector: nx, ny, nz
-//       normal << normals->points[i].normal_x, normals->points[i].normal_y, normals->points[i].normal_z;
-//       // Curvature: Using eigenvalue of covariance matrix, curvature is the smallest eigenvalue
-//       curvature = normals->points[i].curvature;
-
-//       std::cout << "Point " << i + 1 << ":" << std::endl;
-//       std::cout << "Normal Vector: (" << normal[0] << ", " << normal[1] << ", " << normal[2] << ")" << std::endl;
-//       std::cout << "Curvature: " << curvature << std::endl;
-//   }
-
-//   // Now implement the PCA for the eigenvalue calculation to get the exact normal and curvature
-
-//   for (size_t i = 0; i < cloud->points.size(); ++i) {
-//       // Get the k nearest neighbors using the KD-tree
-//       std::vector<int> point_indices(k_neighbors);
-//       std::vector<float> point_squared_distances(k_neighbors);
-
-//       if (tree->nearestKSearch(cloud->points[i], k_neighbors, point_indices, point_squared_distances) > 0) {
-//           // Build matrix M with the relative coordinates
-//           Eigen::MatrixXf M(k_neighbors, 3);
-//           for (int j = 0; j < k_neighbors; ++j) {
-//               const pcl::PointXYZ& neighbor = cloud->points[point_indices[j]];
-//               M(j, 0) = neighbor.x - cloud->points[i].x;
-//               M(j, 1) = neighbor.y - cloud->points[i].y;
-//               M(j, 2) = neighbor.z - cloud->points[i].z;
-//           }
-
-//           // Calculate the covariance matrix
-//           Eigen::Matrix3f covariance_matrix = M.transpose() * M;
-
-//           // Perform eigenvalue decomposition
-//           Eigen::EigenSolver<Eigen::Matrix3f> solver(covariance_matrix);
-//           Eigen::Vector3f eigenvalues = solver.eigenvalues().real();
-//           Eigen::Matrix3f eigenvectors = solver.eigenvectors().real();
-
-//           // Get the smallest eigenvalue and its corresponding eigenvector (normal vector)
-//           int min_eigenvalue_index;
-//           eigenvalues.minCoeff(&min_eigenvalue_index);
-
-//           Eigen::Vector3f normal_vector = eigenvectors.col(min_eigenvalue_index);
-//           float curvature_value = eigenvalues(min_eigenvalue_index) / eigenvalues.sum();
-
-//           // Print results
-//           std::cout << "Point " << i + 1 << ":" << std::endl;
-//           std::cout << "Normal Vector: (" << normal_vector[0] << ", " << normal_vector[1] << ", " << normal_vector[2] << ")" << std::endl;
-//           std::cout << "Curvature: " << curvature_value << std::endl;
-//       }
-//   }
-// }
-
-//============================== Check SLZ -r ================================================================================================
-
-
-
-inline PCLResult octreeNeighborhoodPCAFilter1(const CloudInput<PointT>& input,
-                                               double radius,
-                                               float voxelSize,
-                                               int k,
-                                               float angleThreshold,
-                                               int landingZoneNumber,
-                                               int maxAttempts) {
-    // Seed the random number generator to ensure unique random values each time
-    srand(time(0));
-    
-    std::cout << "Loading point cloud..." << std::endl;
-    auto cloud= loadPCLCloud<PointT>(input);
-    if (!cloud || cloud->points.empty()) {
-        std::cerr << "Error: Loaded point cloud is empty!" << std::endl;
-        PCLResult emptyResult;
-        return emptyResult;
-    }
-
-    // Build the KD-tree using the entire cloud
-    pcl::KdTreeFLANN<PointT> kdtree;
-    kdtree.setInputCloud(cloud);
-
-    // We'll collect accepted candidate patches and track their point indices.
-    std::vector<PCLResult> candidatePatches;
-    std::unordered_set<int> acceptedIndices;  // Indices from accepted (flat) patches
-    std::unordered_set<int> rejectedIndices;  // Indices from rejected (non-flat) patches
-    int attempts = 0;
-
-    while (candidatePatches.size() < static_cast<size_t>(landingZoneNumber) && attempts < maxAttempts) {
-        attempts++;
-        int randomIndex = rand() % cloud->points.size();
-        pcl::PointXYZI searchPoint = (*cloud)[randomIndex];
-
-        std::vector<int> pointIdxRadiusSearch;
-        std::vector<float> pointRadiusSquaredDistance;
-
-        std::cout << "Attempt " << attempts << ": Searching neighbors within radius at ("
-                  << searchPoint.x << " " << searchPoint.y << " " << searchPoint.z
-                  << ") with radius = " << radius << std::endl;
-
-        int neighborsFound = kdtree.radiusSearch(searchPoint, radius, pointIdxRadiusSearch, pointRadiusSquaredDistance);
-
-        if (neighborsFound > 0) {
-            std::cout << "Found " << neighborsFound << " neighbors for this patch." << std::endl;
-
-            // Create a patch cloud from the found neighbors.
-            typename pcl::PointCloud<PointT>::Ptr patchCloud(new pcl::PointCloud<PointT>());
-            for (std::size_t i = 0; i < pointIdxRadiusSearch.size(); ++i) {
-                patchCloud->points.push_back(cloud->points[pointIdxRadiusSearch[i]]);
-            }
-
-            // Apply PCA to the patch.
-            // PrincipleComponentAnalysis is assumed to return a PCLResult,
-            // where the outlier_cloud field is non-empty if the patch is not flat.
-            PCLResult pcaResult = PrincipleComponentAnalysis(patchCloud, 0.45f, 20.0f, 10);
-
-            if (pcaResult.outlier_cloud->points.empty()) {
-                std::cout << "Patch is flat. Saving as candidate patch." << std::endl;
-                candidatePatches.push_back(pcaResult);
-                // Mark the indices as accepted.
-                for (int idx : pointIdxRadiusSearch) {
-                    acceptedIndices.insert(idx);
-                }
-            } else {
-                std::cout << "Patch has outliers. Discarding this patch." << std::endl;
-                // Optionally, store rejected indices.
-                for (int idx : pointIdxRadiusSearch) {
-                    rejectedIndices.insert(idx);
-                }
-            }
-        } else {
-            std::cout << "No neighbors found within radius." << std::endl;
-        }
-    }
-
-    // Merge candidate patches into a single inlier cloud.
-    PCLResult finalResult;
-    finalResult.inlier_cloud = pcl::make_shared<PointCloudT>();
-    finalResult.outlier_cloud = pcl::make_shared<PointCloudT>();
-    finalResult.downsampled_cloud = cloud; // keep the original cloud
-
-    for (const auto& patch : candidatePatches) {
-        finalResult.inlier_cloud->points.insert(finalResult.inlier_cloud->points.end(),
-                                                  patch.inlier_cloud->points.begin(),
-                                                  patch.inlier_cloud->points.end());
-    }
-
-    // Add remaining points (i.e. those not used in accepted candidate patches) to outlier cloud.
-    for (size_t i = 0; i < cloud->points.size(); ++i) {
-        if (acceptedIndices.find(i) == acceptedIndices.end()) {
-            finalResult.outlier_cloud->points.push_back(cloud->points[i]);
-        }
-    }
-
-    std::cout << "Found " << candidatePatches.size() 
-              << " candidate landing zones after " << attempts << " attempts." << std::endl;
-    std::cout << "Final inlier cloud size (candidate patches): " << finalResult.inlier_cloud->points.size() << " points." << std::endl;
-    std::cout << "Final outlier cloud size (remaining points): " << finalResult.outlier_cloud->points.size() << " points." << std::endl;
-
-    return finalResult;
-}
-
-//Working perfectly but find patches on the corner and form semi circle
-inline PCLResult octreeNeighborhoodPCAFilter2(const CloudInput<PointT>& input,
-  double initRadius,
-  float voxelSize,
-  int k,
-  float angleThreshold,
-  int landingZoneNumber,
-  int maxAttempts) {
-  // Seed the random number generator to ensure unique random values each time
-  srand(time(0));
-
-  std::cout << "Loading point cloud..." << std::endl;
-  auto cloud= loadPCLCloud<PointT>(input);
-  if (!cloud || cloud->points.empty()) {
-  std::cerr << "Error: Loaded point cloud is empty!" << std::endl;
-  PCLResult emptyResult;
-  return emptyResult;
-  }
-
-  // Build the KD-tree using the entire cloud
-  pcl::KdTreeFLANN<PointT> kdtree;
-  kdtree.setInputCloud(cloud);
-
-  // Containers to collect accepted candidate patches and track indices.
-  std::vector<PCLResult> candidatePatches;
-  std::unordered_set<int> acceptedIndices;  // Indices from accepted (flat) patches
-  std::unordered_set<int> rejectedIndices;  // Indices from rejected (non-flat) patches
-  int attempts = 0;
-  double radiusIncrement = 0.5;  // adjustable increment in meters
-
-  // Main loop: keep trying until we have enough candidate patches or reach maxAttempts.
-  while (candidatePatches.size() < static_cast<size_t>(landingZoneNumber) && attempts < maxAttempts) {
-  attempts++;
-  int randomIndex = rand() % cloud->points.size();
-  PointT searchPoint = (*cloud)[randomIndex];
-
-  double currentRadius = initRadius;
-  PCLResult bestFlatPatch;  // to store the last flat patch result
-  bool foundFlat = false;   // flag indicating we have at least one flat patch
-
-  std::cout << "Attempt " << attempts << ": Searching neighbors at ("
-  << searchPoint.x << " " << searchPoint.y << " " << searchPoint.z
-  << ") with initial radius = " << currentRadius << std::endl;
-
-  while (true) {
-  std::vector<int> pointIdxRadiusSearch;
-  std::vector<float> pointRadiusSquaredDistance;
-  int neighborsFound = kdtree.radiusSearch(searchPoint, currentRadius, pointIdxRadiusSearch, pointRadiusSquaredDistance);
-
-  std::cout << "   Radius = " << currentRadius << " m: Found " << neighborsFound << " neighbors." << std::endl;
-
-  if (neighborsFound <= 0) {
-  // If no neighbors are found at current radius, break the loop.
-  break;
-  }
-
-  // Create a patch cloud from the found neighbors.
-  typename pcl::PointCloud<PointT>::Ptr patchCloud(new pcl::PointCloud<PointT>());
-  for (std::size_t i = 0; i < pointIdxRadiusSearch.size(); ++i) {
-  patchCloud->points.push_back(cloud->points[pointIdxRadiusSearch[i]]);
-  }
-
-  // Apply PCA to the patch.
-  // Here, PrincipleComponentAnalysis is assumed to return a PCLResult.
-  // It is assumed that if the patch is flat, pcaResult.outlier_cloud->points is empty.
-  PCLResult pcaResult = PrincipleComponentAnalysis(patchCloud, voxelSize, angleThreshold, k);
-
-  if (pcaResult.outlier_cloud->points.empty()) {
-  // The patch is flat.
-  std::cout << "   Patch is flat at radius " << currentRadius << " m." << std::endl;
-  bestFlatPatch = pcaResult;  // store this as the best flat patch so far
-  foundFlat = true;
-  // Increase the search radius and try to get a larger flat area.
-  currentRadius += radiusIncrement;
-  continue;  // try with the increased radius
-  } else {
-  std::cout << "   Patch is not flat at radius " << currentRadius << " m." << std::endl;
-  // The current patch is not flat. Break out of the loop.
-  break;
-  }
-  }  // end inner loop
-
-  // If we have found a flat patch before the patch turned non-flat, use it.
-  if (foundFlat) {
-  std::cout << "Saving candidate patch from previous flat search (radius < " 
-  << currentRadius << " m)." << std::endl;
-  candidatePatches.push_back(bestFlatPatch);
-  // Mark the indices of this candidate patch as accepted.
-  // For simplicity, we add all neighbor indices from the best flat patch.
-  // (Assuming bestFlatPatch stores the indices or you can derive them from its inlier_cloud.)
-  for (const auto& pt : bestFlatPatch.inlier_cloud->points) {
-  // In a real implementation, you might need to map the point back to its index.
-  // Here we simply note that these points belong to an accepted patch.
-  // (This part may be adjusted based on your data structure.)
-  // acceptedIndices.insert(idx);
-  }
-  } else {
-  std::cout << "No flat patch found in this attempt." << std::endl;
-  }
-  }  // end main loop
-
-  // Merge candidate patches into a single inlier cloud.
-  PCLResult finalResult;
-  finalResult.inlier_cloud = pcl::make_shared<PointCloudT>();
-  finalResult.outlier_cloud = pcl::make_shared<PointCloudT>();
-  finalResult.downsampled_cloud = cloud; // keep the original cloud
-
-  for (const auto& patch : candidatePatches) {
-  finalResult.inlier_cloud->points.insert(finalResult.inlier_cloud->points.end(),
-      patch.inlier_cloud->points.begin(),
-      patch.inlier_cloud->points.end());
-  }
-
-  // Add remaining points (i.e. those not used in accepted candidate patches) to the outlier cloud.
-  for (size_t i = 0; i < cloud->points.size(); ++i) {
-  if (acceptedIndices.find(i) == acceptedIndices.end()) {
-  finalResult.outlier_cloud->points.push_back(cloud->points[i]);
-  }
-  }
-
-  std::cout << "Found " << candidatePatches.size() 
-  << " candidate landing zones after " << maxAttempts << " attempts." << std::endl;
-  std::cout << "Final inlier cloud size (candidate patches): " << finalResult.inlier_cloud->points.size() << " points." << std::endl;
-  std::cout << "Final outlier cloud size (remaining points): " << finalResult.outlier_cloud->points.size() << " points." << std::endl;
-
-  return finalResult;
-}
-//================================================================================================================================================
-
-// The following function is your octreeNeighborhood PCAFilter modified to check for edge points.
-inline PCLResult octreeNeighborhoodPCAFilter(const CloudInput<PointT>& input,
-                                               double initRadius,
-                                               float voxelSize,
-                                               int k,
-                                               float angleThreshold,
-                                               int landingZoneNumber,
-                                               int maxAttempts) {
-    // Seed the random number generator to ensure unique random values each time
-    srand(time(0));
-    
-    std::cout << "Loading point cloud..." << std::endl;
-    auto cloud= loadPCLCloud<PointT>(input);
-    if (!cloud || cloud->points.empty()) {
-        std::cerr << "Error: Loaded point cloud is empty!" << std::endl;
-        PCLResult emptyResult;
-        return emptyResult;
-    }
-
-    // Compute the 2D bounding box in the XY plane for the entire cloud
-    double minX = std::numeric_limits<double>::max(), maxX = -std::numeric_limits<double>::max();
-    double minY = std::numeric_limits<double>::max(), maxY = -std::numeric_limits<double>::max();
-    for (const auto &pt : cloud->points) {
-        if (pt.x < minX) minX = pt.x;
-        if (pt.x > maxX) maxX = pt.x;
-        if (pt.y < minY) minY = pt.y;
-        if (pt.y > maxY) maxY = pt.y;
-    }
-    std::cout << "Cloud bounding box (XY): x=[" << minX << ", " << maxX 
-              << "], y=[" << minY << ", " << maxY << "]" << std::endl;
-    
- 
-    // Build the KD-tree using the entire cloud.
-    pcl::KdTreeFLANN<PointT> kdtree;
-    kdtree.setInputCloud(cloud);
-
-    // Containers for candidate patches.
-    std::vector<PCLResult> candidatePatches;
-    std::unordered_set<int> acceptedIndices;  // (optional: to track accepted indices)
-    int attempts = 0;
-
-    // Adjustable parameters.
-    double currentRadius = initRadius;
-    double radiusIncrement = 0.5;           // Increase search radius by 0.5 m each time
-    double circularityThreshold = 0.8;        // Minimum circularity (using a metric like (4π·area)/(perimeter²)) for a full circle
-
-    while (candidatePatches.size() < static_cast<size_t>(landingZoneNumber) && attempts < maxAttempts) {
-        attempts++;
-        int randomIndex = rand() % cloud->points.size();
-        PointT searchPoint = (*cloud)[randomIndex];
-
-        // Check if the random point is sufficiently away from the edge
-        if (searchPoint.x < (minX + initRadius) || searchPoint.x > (maxX - initRadius) ||
-            searchPoint.y < (minY + initRadius) || searchPoint.y > (maxY - initRadius)) {
-            std::cout << "Attempt " << attempts << ": Random point at (" << searchPoint.x << ", " 
-                      << searchPoint.y << ", " << searchPoint.z 
-                      << ") is too close to the edge. Skipping." << std::endl;
-            continue;
-        }
-
-        std::cout << "Attempt " << attempts << ": Searching neighbors at ("
-                  << searchPoint.x << " " << searchPoint.y << " " << searchPoint.z
-                  << ") with initial radius = " << currentRadius << " m" << std::endl;
-
-        bool foundFlat = false;
-        PCLResult bestFlatPatch;  // to store the last flat, circular patch
-        double bestCircularity = 0.0;
-
-        // Increase search radius iteratively until a non-flat patch is detected.
-        while (true) {
-            std::vector<int> pointIdxRadiusSearch;
-            std::vector<float> pointRadiusSquaredDistance;
-            int neighborsFound = kdtree.radiusSearch(searchPoint, currentRadius, pointIdxRadiusSearch, pointRadiusSquaredDistance);
-            
-            std::cout << "   Radius = " << currentRadius << " m: Found " << neighborsFound << " neighbors." << std::endl;
-            
-            if (neighborsFound <= 0) {
-                break;  // No neighbors found.
-            }
-            
-            // Create a patch cloud from the found neighbors.
-            typename pcl::PointCloud<PointT>::Ptr patchCloud(new pcl::PointCloud<PointT>());
-            for (std::size_t i = 0; i < pointIdxRadiusSearch.size(); ++i) {
-                patchCloud->points.push_back(cloud->points[pointIdxRadiusSearch[i]]);
-            }
-            
-            // Apply PCA to the patch.
-            // PrincipleComponentAnalysis is assumed to return a PCLResult,
-            // where pcaResult.outlier_cloud is empty if the patch is flat.
-            PCLResult pcaResult = PrincipleComponentAnalysis(patchCloud, voxelSize, angleThreshold, k);
-            
-            if (pcaResult.outlier_cloud->points.empty()) {
-                // Patch is flat; now check its circularity.
-                // Compute the convex hull of the patch projected onto XY.
-                pcl::ConvexHull<PointT> chull;
-                chull.setInputCloud(patchCloud);
-                chull.setDimension(2);
-                typename pcl::PointCloud<PointT>::Ptr hull(new pcl::PointCloud<PointT>());
-                chull.reconstruct(*hull);
-
-                // Compute area and perimeter using the hull.
-                double area = 0.0, perimeter = 0.0;
-                if (hull->points.size() >= 3) {
-                    for (size_t i = 0; i < hull->points.size(); ++i) {
-                        size_t j = (i + 1) % hull->points.size();
-                        double xi = hull->points[i].x, yi = hull->points[i].y;
-                        double xj = hull->points[j].x, yj = hull->points[j].y;
-                        area += (xi * yj - xj * yi);
-                        perimeter += std::hypot(xj - xi, yj - yi);
-                    }
-                    area = std::abs(area) * 0.5;
-                }
-                double circularity = (perimeter > 0) ? (4 * M_PI * area) / (perimeter * perimeter) : 0.0;
-                std::cout << "   Patch is flat. Circularity = " << circularity << std::endl;
-                if (circularity >= circularityThreshold) {
-                    std::cout << "   Patch is flat and circular at radius " << currentRadius << " m." << std::endl;
-                    bestFlatPatch = pcaResult;
-                    bestCircularity = circularity;
-                    foundFlat = true;
-                } else {
-                    std::cout << "   Patch is flat but incomplete (circularity = " << circularity << ")." << std::endl;
-                }
-                // Increase the search radius to attempt a larger patch.
-                currentRadius += radiusIncrement;
-                continue;
-            } else {
-                std::cout << "   Patch is not flat at radius " << currentRadius << " m." << std::endl;
-                break;  // Exit the inner loop if patch is non-flat.
-            }
-        }  // End inner while
-        
-        if (foundFlat) {
-            std::cout << "Saving candidate patch from previous flat search (radius < " 
-                      << currentRadius << " m, circularity = " << bestCircularity << ")." << std::endl;
-            candidatePatches.push_back(bestFlatPatch);
-        } else {
-            std::cout << "No suitable full flat patch found in this attempt." << std::endl;
-        }
-        
-        // Reset currentRadius for the next attempt.
-        currentRadius = initRadius;
-    }  // End main while
-
-    // Merge candidate patches into a single inlier cloud.
-    PCLResult finalResult;
-    finalResult.inlier_cloud = pcl::make_shared<PointCloudT>();
-    finalResult.outlier_cloud = pcl::make_shared<PointCloudT>();
-    finalResult.downsampled_cloud = cloud;  // keep original cloud
-
-    for (const auto& patch : candidatePatches) {
-        finalResult.inlier_cloud->points.insert(finalResult.inlier_cloud->points.end(),
-                                                  patch.inlier_cloud->points.begin(),
-                                                  patch.inlier_cloud->points.end());
-    }
-
-    // Add remaining points to outlier cloud.
-    for (size_t i = 0; i < cloud->points.size(); ++i) {
-        // (If you track indices, you can avoid duplicates)
-        finalResult.outlier_cloud->points.push_back(cloud->points[i]);
-    }
-
-    std::cout << "Found " << candidatePatches.size() 
-              << " candidate landing zones after " << maxAttempts << " attempts." << std::endl;
-    std::cout << "Final inlier cloud size (candidate patches): " << finalResult.inlier_cloud->points.size() << " points." << std::endl;
-    std::cout << "Final outlier cloud size (remaining points): " << finalResult.outlier_cloud->points.size() << " points." << std::endl;
-
-    return finalResult;
-}
-
-//================================================================================================================================================
-// The following function is your octreeNeighborhood PCAFilter modified to avoid seed points which are close to edges and seed points which are already in a candidate point found
-inline PCLResult octreeNeighborhoodPCAFilter3(const CloudInput<PointT>& input,
-                                               double initRadius,
-                                               float voxelSize,
-                                               int k,
-                                               float angleThreshold,
-                                               int landingZoneNumber,
-                                               int maxAttempts) {
-    // Seed the random number generator for unique values each time.
-    srand(time(0));
-    
-    std::cout << "Loading point cloud..." << std::endl;
-    auto cloud = loadPCLCloud<PointT>(input);
-    if (!cloud || cloud->points.empty()) {
-        std::cerr << "Error: Loaded point cloud is empty!" << std::endl;
-        PCLResult emptyResult;
-        return emptyResult;
-    }
-
-    // Compute 2D bounding box (optional, if you want to avoid edge points)
-    double minX = std::numeric_limits<double>::max(), maxX = -std::numeric_limits<double>::max();
-    double minY = std::numeric_limits<double>::max(), maxY = -std::numeric_limits<double>::max();
-    for (const auto &pt : cloud->points) {
-        if (pt.x < minX) minX = pt.x;
-        if (pt.x > maxX) maxX = pt.x;
-        if (pt.y < minY) minY = pt.y;
-        if (pt.y > maxY) maxY = pt.y;
-    }
-    std::cout << "Cloud bounding box (XY): x=[" << minX << ", " << maxX 
-              << "], y=[" << minY << ", " << maxY << "]" << std::endl;
-    
-
-              
-
-    // Build KD-tree for the cloud.
-    pcl::KdTreeFLANN<PointT> kdtree;
-    kdtree.setInputCloud(cloud);
-
-    // This set will track indices already included in a candidate flat patch.
-    std::unordered_set<int> acceptedIndices;
-    
-    // Containers for candidate patches.
-    std::vector<PCLResult> candidatePatches;
-    int attempts = 0;
-
-    // Adjustable parameters.
-    double currentRadius = initRadius;
-    double radiusIncrement = 0.5;           // Increase search radius by 0.5 m each iteration.
-    double circularityThreshold = 0.8;        // Circularity threshold (e.g., (4π·area)/(perimeter²) must be >= 0.8.
-
-    while (candidatePatches.size() < static_cast<size_t>(landingZoneNumber) && attempts < maxAttempts) {
-        attempts++;
-        int randomIndex = rand() % cloud->points.size();
-        
-        // Skip this random point if it is already in an accepted candidate patch.
-        if (acceptedIndices.find(randomIndex) != acceptedIndices.end()) {
-            std::cout << "Attempt " << attempts << ": Random point " << randomIndex 
-                      << " is already part of an accepted flat patch. Skipping." << std::endl;
-            continue;
-        }
-        
-        PointT searchPoint = (*cloud)[randomIndex];
-
-        // Optionally, check if the seed is too near the edge.
-        if (searchPoint.x < (minX + initRadius) || searchPoint.x > (maxX - initRadius) ||
-            searchPoint.y < (minY + initRadius) || searchPoint.y > (maxY - initRadius)) {
-            std::cout << "Attempt " << attempts << ": Point " << randomIndex << " is too near the edge. Skipping." << std::endl;
-            continue;
-        }
-
-        std::cout << "Attempt " << attempts << ": Searching neighbors at ("
-                  << searchPoint.x << " " << searchPoint.y << " " << searchPoint.z
-                  << ") with initial radius = " << currentRadius << " m" << std::endl;
-
-        bool foundFlat = false;
-        PCLResult bestFlatPatch;  // store last flat patch that is complete.
-        std::vector<int> bestPatchIndices;  // store indices from the best flat patch.
-        double bestCircularity = 0.0;
-
-        // Increase search radius iteratively until patch becomes non-flat.
-        while (true) {
-            std::vector<int> pointIdxRadiusSearch;
-            std::vector<float> pointRadiusSquaredDistance;
-            int neighborsFound = kdtree.radiusSearch(searchPoint, currentRadius, pointIdxRadiusSearch, pointRadiusSquaredDistance);
-            
-            std::cout << "   Radius = " << currentRadius << " m: Found " << neighborsFound << " neighbors." << std::endl;
-            
-            if (neighborsFound <= 0) {
-                break;
-            }
-            
-            // Create a patch cloud from the found neighbors.
-            typename pcl::PointCloud<PointT>::Ptr patchCloud(new pcl::PointCloud<PointT>());
-            for (std::size_t i = 0; i < pointIdxRadiusSearch.size(); ++i) {
-                patchCloud->points.push_back(cloud->points[pointIdxRadiusSearch[i]]);
-            }
-            
-            // Apply PCA to the patch.
-            // PrincipleComponentAnalysis (PCA) is assumed to return a PCLResult.
-            // We assume that if the patch is flat, pcaResult.outlier_cloud->points is empty.
-            PCLResult pcaResult = PrincipleComponentAnalysis(patchCloud, voxelSize, angleThreshold, k);
-            
-            if (pcaResult.outlier_cloud->points.empty()) {
-                // Patch is flat; now compute circularity.
-                pcl::ConvexHull<PointT> chull;
-                chull.setInputCloud(patchCloud);
-                chull.setDimension(2);
-                typename pcl::PointCloud<PointT>::Ptr hull(new pcl::PointCloud<PointT>());
-                chull.reconstruct(*hull);
-                
-                double area = 0.0, perimeter = 0.0;
-                if (hull->points.size() >= 3) {
-                    for (size_t i = 0; i < hull->points.size(); ++i) {
-                        size_t j = (i + 1) % hull->points.size();
-                        double xi = hull->points[i].x, yi = hull->points[i].y;
-                        double xj = hull->points[j].x, yj = hull->points[j].y;
-                        area += (xi * yj - xj * yi);
-                        perimeter += std::hypot(xj - xi, yj - yi);
-                    }
-                    area = std::abs(area) * 0.5;
-                }
-                double circularity = (perimeter > 0) ? (4 * M_PI * area) / (perimeter * perimeter) : 0.0;
-                std::cout << "   Patch is flat. Circularity = " << circularity << std::endl;
-                
-                if (circularity >= circularityThreshold) {
-                    std::cout << "   Patch is flat and circular at radius " << currentRadius << " m." << std::endl;
-                    bestFlatPatch = pcaResult;
-                    bestPatchIndices = pointIdxRadiusSearch;
-                    bestCircularity = circularity;
-                    foundFlat = true;
-                } else {
-                    std::cout << "   Patch is flat but incomplete (circularity = " << circularity << ")." << std::endl;
-                }
-                // Increase radius and try again.
-                currentRadius += radiusIncrement;
-                continue;
-            } else {
-                std::cout << "   Patch is not flat at radius " << currentRadius << " m." << std::endl;
-                break;
-            }
-        }  // End inner while
-        
-        if (foundFlat) {
-            std::cout << "Saving candidate patch from previous flat search (radius < " 
-                      << currentRadius << " m, circularity = " << bestCircularity << ")." << std::endl;
-            candidatePatches.push_back(bestFlatPatch);
-            // Mark all indices from bestPatchIndices as accepted.
-            for (int idx : bestPatchIndices) {
-                acceptedIndices.insert(idx);
-            }
-        } else {
-            std::cout << "No suitable full flat patch found in this attempt." << std::endl;
-        }
-        
-        // Reset currentRadius for the next attempt.
-        currentRadius = initRadius;
-    }  // End main while
-
-    // Merge candidate patches into a single inlier cloud.
-    PCLResult finalResult;
-    finalResult.inlier_cloud = pcl::make_shared<PointCloudT>();
-    finalResult.outlier_cloud = pcl::make_shared<PointCloudT>();
-    finalResult.downsampled_cloud = cloud;  // Keep original cloud
-
-    for (const auto& patch : candidatePatches) {
-        finalResult.inlier_cloud->points.insert(finalResult.inlier_cloud->points.end(),
-                                                  patch.inlier_cloud->points.begin(),
-                                                  patch.inlier_cloud->points.end());
-    }
-
-    // Add remaining points to outlier cloud.
-    for (size_t i = 0; i < cloud->points.size(); ++i) {
-        if (acceptedIndices.find(i) == acceptedIndices.end()) {
-            finalResult.outlier_cloud->points.push_back(cloud->points[i]);
-        }
-    }
-
-    std::cout << "Found " << candidatePatches.size() 
-              << " candidate landing zones after " << maxAttempts << " attempts." << std::endl;
-    std::cout << "Final inlier cloud size (candidate patches): " << finalResult.inlier_cloud->points.size() << " points." << std::endl;
-    std::cout << "Final outlier cloud size (remaining points): " << finalResult.outlier_cloud->points.size() << " points." << std::endl;
-
-    return finalResult;
-}
 
 //================================================================================================================================================
 inline PCLResult findSafeLandingZones(const CloudInput<PointT>& flatInliersInput,
@@ -1763,10 +1198,10 @@ result.inlier_cloud = validLandingZones;
 return result;
 }
 //===============================Calculate Roughness (PCL)====================================================================================
-// Function to calculate roughness based on the PROSAC segmentation result.
-// The function computes the roughness from the downsampled cloud using the plane coefficients.
-inline double calculateRoughnessPCL(const PCLResult &result)
+
+inline double calculateRoughnessPCL(PCLResult& result)
 {
+  // Check if the plane coefficients are valid
   if (result.plane_coefficients->values.size() < 4 || result.inlier_cloud->points.empty())
   {
     std::cerr << "Invalid plane coefficients or empty inlier cloud. Cannot compute roughness." << std::endl;
@@ -1778,19 +1213,26 @@ inline double calculateRoughnessPCL(const PCLResult &result)
   double b = result.plane_coefficients->values[1];
   double c = result.plane_coefficients->values[2];
   double d = result.plane_coefficients->values[3];
+  
+  // Calculate the plane normal's magnitude for normalization
   double norm = std::sqrt(a * a + b * b + c * c);
   
+  // Variable to accumulate the squared distance of each point from the plane
   double sum_squared = 0.0;
   size_t N = result.inlier_cloud->points.size();
   
+  // Loop over each point in the result.er cloud to calculate the roughness
   for (const auto &pt : result.inlier_cloud->points)
   {
+    // Calculate the distance from the point to the plane
     double distance = std::abs(a * pt.x + b * pt.y + c * pt.z + d) / norm;
     sum_squared += distance * distance;
   }
   
+  // Return the square root of the average squared distance (roughness)
   return std::sqrt(sum_squared / static_cast<double>(N));
 }
+
 //===============================Calculate Roughness (OPEN3D)============================================================
 
 inline double calculateRoughnessOpen3D(const OPEN3DResult &result)
@@ -1801,10 +1243,10 @@ inline double calculateRoughnessOpen3D(const OPEN3DResult &result)
     }
 
     // Unpack plane parameters: ax + by + cz + d = 0.
-    double a = result.plane_model[0];
-    double b = result.plane_model[1];
-    double c = result.plane_model[2];
-    double d = result.plane_model[3];
+    double a = result.plane_coefficients[0];
+    double b = result.plane_coefficients[1];
+    double c = result.plane_coefficients[2];
+    double d = result.plane_coefficients[3];
     double norm = std::sqrt(a*a + b*b + c*c);
 
     double sum_squared = 0.0;
@@ -1844,7 +1286,7 @@ inline double calculateReliefOpen3D(const OPEN3DResult &result)
 
 //=============================Calculate Relief (PCL)==========================================================================
 // Calculate relief from the inlier cloud (safe landing zone).
-inline double calculateReliefPCL(const PCLResult &result)
+inline double calculateReliefPCL(PCLResult& result)
 {
     if (!result.inlier_cloud || result.inlier_cloud->points.empty()) {
         std::cerr << "Error: Inlier cloud is empty." << std::endl;
@@ -1903,7 +1345,7 @@ inline double calculateDataConfidenceOpen3D(const OPEN3DResult &result)
 //=============================Calculate Data Confidence (PCL)=======================================================================
 // Calculate data confidence for PCLResult.
 // It computes the 2D convex hull (projecting the inlier cloud) and returns N divided by the hull area.
-inline double calculateDataConfidencePCL(const PCLResult &result)
+inline double calculateDataConfidencePCL(PCLResult& result)
 {
     if (!result.inlier_cloud || result.inlier_cloud->points.empty()) {
         std::cerr << "Error: Inlier cloud is empty." << std::endl;
@@ -1911,45 +1353,46 @@ inline double calculateDataConfidencePCL(const PCLResult &result)
     }
 
     size_t N = result.inlier_cloud->points.size();
-    
+
     // Compute the convex hull of the inlier cloud projected onto a plane.
-    pcl::ConvexHull<PointT> chull;
+    pcl::ConvexHull<pcl::PointXYZI> chull;
     chull.setInputCloud(result.inlier_cloud);
     chull.setDimension(2);
-    
-    PointCloudT::Ptr hull_points(new PointCloudT);
+
+    pcl::PointCloud<pcl::PointXYZI>::Ptr hull_points(new pcl::PointCloud<pcl::PointXYZI>);
     std::vector<pcl::Vertices> polygons;
     chull.reconstruct(*hull_points, polygons);
-    
+
     if (polygons.empty() || hull_points->points.empty()) {
         std::cerr << "Error: Convex hull could not be computed." << std::endl;
         return -1.0;
     }
-    
+
     // Compute the area of the first polygon using the shoelace formula.
     double area = 0.0;
-    const std::vector<int> &indices = polygons[0].vertices;
+    const std::vector<int>& indices = polygons[0].vertices;
     size_t n = indices.size();
     if (n < 3) {
         std::cerr << "Error: Convex hull does not have enough points to form an area." << std::endl;
         return -1.0;
     }
-    
+
     for (size_t i = 0; i < n; i++) {
-        const auto &p1 = hull_points->points[indices[i]];
-        const auto &p2 = hull_points->points[indices[(i + 1) % n]];
+        const auto& p1 = hull_points->points[indices[i]];
+        const auto& p2 = hull_points->points[indices[(i + 1) % n]];
         area += (p1.x * p2.y - p2.x * p1.y);
     }
     area = std::abs(area) / 2.0;
-    
+
     if (area <= 0.0) {
         std::cerr << "Error: Computed hull area is non-positive." << std::endl;
         return -1.0;
     }
-    
+
     double data_confidence = static_cast<double>(N) / area;
     return data_confidence;
 }
+
 
 #endif 
 

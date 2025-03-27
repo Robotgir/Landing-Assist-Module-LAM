@@ -1,5 +1,4 @@
 ros__parameters:
-  # pcd_file_path: "/home/airsim_user/Landing-Assist-Module-LAM/test.pcd"
   pcd_file_path: "/home/airsim_user/Landing-Assist-Module-LAM/9_12_2024.pcd"
   visualize: true #visualization for individual function
   final_visualize: true #visualizing final result

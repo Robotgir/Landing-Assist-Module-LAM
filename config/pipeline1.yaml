@@ -1,5 +1,4 @@
 ros__parameters:
-  # pcd_file_path: "/home/airsim_user/Landing-Assist-Module-LAM/test.pcd"
   pcd_file_path: "/home/airsim_user/Landing-Assist-Module-LAM/test.pcd"
   visualize: true #visualization for individual function
   final_visualize: true #visualizing final result
@@ -11,7 +10,7 @@ ros__parameters:
   # Define the pipeline of processing steps.
   pipeline:
     - step: "SOR"
-      enabled: true
+      enabled: false
       parameters:
         nb_neighbors: 20
         std_ratio: 2.0
@@ -31,14 +30,14 @@ ros__parameters:
         sigma_r: 0.3
         visualization: "both"
     - step: "PROSAC"
-      enabled: true
+      enabled: false
       parameters:
         voxel_size: 0.05
         distanceThreshold: 1.9
         maxIterations: 1000
         visualization: "both"
     - step: "LMEDS"
-      enabled: true
+      enabled: false
       parameters:
         voxel_size: 0.05
         distanceThreshold: 1.9
@@ -48,7 +47,7 @@ ros__parameters:
       enabled: true
       parameters:
         voxelSize: 0.05
-        angleThreshold: 10.0
+        angleThreshold: 3
         k: 10
         visualization: "both"
     - step: "CheckSLZ-r"
@@ -58,4 +57,6 @@ ros__parameters:
         removalThreshold: 0.01
         clusterTolerance: 0.8 # in m
         visualization: "both"
+    - step: "Roughness"
+      enabled: true
  

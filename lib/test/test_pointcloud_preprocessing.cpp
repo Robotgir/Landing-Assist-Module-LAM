@@ -8,7 +8,7 @@
 bool g_skipVisualization = false;
 
 // Change this file path if needed.
-static const std::string filePath = "/home/airsim_user/Landing-Assist-Module-LAM/9_12_2024.pcd";
+static const std::string filePath = "/home/airsim_user/Landing-Assist-Module-LAM/test.pcd";
 
 // Helper function to check if a file exists.
 bool fileExists(const std::string &path) {

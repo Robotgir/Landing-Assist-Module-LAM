@@ -1,8 +1,8 @@
 ros__parameters:
-  # pcd_file_path: "/home/airsim_user/Landing-Assist-Module-LAM/test.pcd"
-  pcd_file_path: "/home/athul/Downloads/dales_ply/train/pointcloud.pcd"
+  pcd_file_path: "/home/airsim_user/Landing-Assist-Module-LAM/test.pcd"
   visualize: true
   final_visualize: true
+  final_result_visualization: "both" # can choose both ,inlier_cloud,outlier_cloud to visualize
   voxel_size: 0.45
   voxel_downsample_pointcloud: true
 
@@ -30,7 +30,7 @@ ros__parameters:
         sigma_r: 0.3
         visualization: "both"
     - step: "RANSAC_OPEN3D"
-      enabled: false
+      enabled: true
       parameters:
         voxel_size: 0.05
         distanceThreshold: 1.9
@@ -38,7 +38,7 @@ ros__parameters:
         maxIterations: 1000
         visualization: "both" 
     - step: "LeastSquare"
-      enabled: false
+      enabled: true
       parameters:
         voxel_size: 0.05
         distanceThreshold: 1.85
@@ -51,21 +51,21 @@ ros__parameters:
         maxIterations: 200
         visualization: "both"
     - step: "RANSAC"
-      enabled: false
+      enabled: true
       parameters:
         voxel_size: 0.05
         distanceThreshold: 1.9
         maxIterations: 200
         visualization: "both"
     - step: "LMEDS"
-      enabled: false
+      enabled: true
       parameters:
         voxel_size: 0.05
         distanceThreshold: 1.9
         maxIterations: 200
         visualization: "both"
     - step: "Average3DGradient"
-      enabled: false
+      enabled: true
       parameters:
         voxelSize: 0.1
         neighborRadius: 0.5
@@ -73,7 +73,7 @@ ros__parameters:
         angleThreshold: 10.0
         visualization: "both"
     - step: "RegionGrowing"
-      enabled: false
+      enabled: true
       parameters:
         voxelSize: 0.05
         angleThreshold: 10.0
@@ -83,9 +83,10 @@ ros__parameters:
         normal_k_search: 50
         visualization: "both"
     - step: "PCA"
-      enabled: false
+      enabled: true
       parameters:
         voxelSize: 0.1
-        angleThreshold: 0.5
-        k: 10
+        angleThreshold: 30
+        k: 20
         visualization: "both"
+  

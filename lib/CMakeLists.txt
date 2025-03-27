@@ -23,7 +23,8 @@ include_directories(${OCTOMAP_INCLUDE_DIRS})
 #include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../common)
 
 include_directories(
-  ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/
+
 )
 
 # ----------------------------------------------------------------------------
@@ -57,8 +58,9 @@ set(CMAKE_EXE_LINKER_FLAGS
 # ----------------------------------------------------------------------------
 # 5. Create the executables
 # ----------------------------------------------------------------------------
-add_executable(test_hazard_metrices test_hazard_metrices.cpp)
-add_executable(test_pointcloud_preprocessing test_pointcloud_preprocessing.cpp)
+add_executable(test_hazard_metrices test/test_hazard_metrices.cpp)
+add_executable(test_pointcloud_preprocessing test/test_pointcloud_preprocessing.cpp)
+add_executable(main main.cpp)
 
 # ----------------------------------------------------------------------------
 # 6. Link libraries
@@ -103,4 +105,22 @@ target_link_libraries(test_pointcloud_preprocessing
     pthread                # -lpthread
 )
 
-#endif()
+
+
+# Link libraries.
+target_link_libraries(main
+  yaml-cpp 
+  Open3D::Open3D 
+  ${PCL_LIBRARIES}
+  ${OCTOMAP_LIBRARIES}  
+  GL                     # -lGL
+  GLU                    # -lGLU
+  glfw                   # -lglfw
+  GLEW                   # -lGLEW
+  assimp                 # -lassimp
+  jsoncpp               # -ljsoncpp
+  jpeg                   # -ljpeg
+  png                    # -lpng
+  z                      # -lz
+  pthread                # -lpthread
+)

@@ -37,15 +37,29 @@ struct PCLResult {
     std::string pcl_method;
     pcl::ModelCoefficients::Ptr plane_coefficients;
   };
-  //=======================================STRUCT TO HOLD OPEN3D RESULT==========================================
+//=======================================STRUCT TO HOLD OPEN3D RESULT==========================================
   struct OPEN3DResult {
       std::shared_ptr<open3d::geometry::PointCloud> inlier_cloud;
       std::shared_ptr<open3d::geometry::PointCloud> outlier_cloud;
       std::shared_ptr<open3d::geometry::PointCloud> downsampled_cloud;
       std::string open3d_method;
-      Eigen::Vector4d plane_model;  // To store the plane model: [a, b, c, d]
+      Eigen::Vector4d plane_coefficients;  // To store the plane model: [a, b, c, d]
   };
+//======================================STRUCT TO HOLD CANDIDATE POINTS ============================================
+struct SLZDCandidatePoints {
+    std::vector<PointT> seedPoints;  // Array of seed points used to calculate the circle plane
+    std::vector<std::shared_ptr<pcl::PointCloud<PointT>>> detectedSurfaces; // Array of detected surfaces, represented as point clouds
+    std::vector<double> dataConfidences; // Array of data confidence values for the candidate zones
+    std::vector<double> roughnesses;  // Array of roughness values for the candidate landing zones
+    std::vector<double> reliefs;  // Array of relief values for the candidate landing zones
+    std::vector<double> score;
+    std::vector<pcl::ModelCoefficients::Ptr> plane_coefficients;
+    // Constructor to initialize the struct
+    SLZDCandidatePoints() {
+        // No need to initialize these with default values, as they are vectors and can be resized later
+    }
 
+};
 //===================================Function to convert OPEN3D to PCL ==============================================
 inline PCLResult convertOpen3DToPCL(const OPEN3DResult &open3d_result) {
     PCLResult pcl_result;

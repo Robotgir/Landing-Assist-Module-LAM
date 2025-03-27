@@ -6,13 +6,14 @@
 #include "hazard_metrices.h"
 #include "pointcloud_preprocessing.h"
 #include "common.h"
+#include "architecture.h"
 
 using PointT = pcl::PointXYZI;
 
 int main(int argc, char **argv)
 {
 
-    std::string config_file = "/home/airsim_user/Landing-Assist-Module-LAM/config/pipeline1.yaml";
+    std::string config_file = "/home/airsim_user/Landing-Assist-Module-LAM/config/pipeline2Octree.yaml";
     // Load YAML configuration.
     YAML::Node config = YAML::LoadFile(config_file);
     YAML::Node params = config["ros__parameters"];
@@ -28,8 +29,9 @@ int main(int argc, char **argv)
     float voxelSize = params["voxel_size"].as<float>();
 
     // Load input point cloud using the provided loadPCLCloud function.
-    PCLResult result;
-    result.downsampled_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
+    PCLResult pclResult;
+    pclResult.downsampled_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
+    pclResult.inlier_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
     auto loaded_cloud = loadPCLCloud<PointT>(pcd_file);
 
     PCLResult final_result;
@@ -38,15 +40,17 @@ int main(int argc, char **argv)
     if (voxel_downsample_pointcloud)
     {
         // Downsample if necessary (here, using a voxel size of 0.45 as example).
-        downsamplePointCloudPCL<PointT>(loaded_cloud, result.downsampled_cloud, voxelSize);
-        std::cout << "Downsampled cloud has " << result.downsampled_cloud->points.size() << " points." << std::endl;
+        downsamplePointCloudPCL<PointT>(loaded_cloud, pclResult.inlier_cloud, voxelSize);
+        std::cout << "Downsampled cloud has " << pclResult.inlier_cloud->points.size() << " points." << std::endl;
     }
     else
     {
-        result.downsampled_cloud = loaded_cloud;
+        // pclResult.downsampled_cloud = loaded_cloud;
+        pclResult.inlier_cloud = loaded_cloud;
     }
     // Start with the downsampled cloud.
-    pcl::PointCloud<PointT>::Ptr current_cloud = result.downsampled_cloud;
+    pcl::PointCloud<PointT>::Ptr current_cloud = pclResult.inlier_cloud;
+
     pcl::PointCloud<PointT>::Ptr sor_result;
 
     // Variable to store safe landing zones
@@ -75,13 +79,15 @@ int main(int argc, char **argv)
 
             // Use the file-path version for SOR.
             OPEN3DResult result = apply_sor_filter(pcd_file, nb_neighbors, std_ratio);
-            PCLResult pcl_cloud = convertOpen3DToPCL(result);
-            sor_result = pcl_cloud.inlier_cloud;
+            auto pclResult = convertOpen3DToPCL(result);
+            // sor_result = pcl_cloud.inlier_cloud;
+
             if (g_visualize)
             {
-                visualizePCL(pcl_cloud, visualization);
+                visualizePCL(pclResult, visualization);
             }
-            current_cloud = pcl_cloud.inlier_cloud;
+            // current_cloud = pcl_cloud.inlier_cloud;
+
         }
         else if (step == "Radial")
         {
@@ -94,7 +100,8 @@ int main(int argc, char **argv)
             {
                 visualizePCL(radial_result);
             }
-            current_cloud = radial_result.inlier_cloud;
+            // current_cloud = radial_result.inlier_cloud;
+            pclResult.inlier_cloud = radial_result.inlier_cloud;
         }
         else if (step == "Bilateral")
         {
@@ -107,7 +114,12 @@ int main(int argc, char **argv)
             {
                 visualizePCL(bilateral_result);
             }
-            current_cloud = bilateral_result.inlier_cloud;
+            // current_cloud = bilateral_result.inlier_cloud;
+            pclResult.inlier_cloud = bilateral_result.inlier_cloud;
+        }
+        else if (step == "2dGridmap"){
+            float resolution = pipeline[i]["parameters"]["resolution"].as<float>();
+            pclResult.inlier_cloud = create2DGridMap(pclResult.inlier_cloud,resolution);
         }
         else if (step == "RANSAC_OPEN3D")
         {
@@ -119,14 +131,17 @@ int main(int argc, char **argv)
 
             // Wrap the current PCL cloud into a temporary PCLResult.
             PCLResult temp;
-            temp.inlier_cloud = current_cloud;
+            // temp.inlier_cloud = current_cloud;
+            temp.inlier_cloud = pclResult.inlier_cloud;
             // Convert to Open3DResult.
             OPEN3DResult open3d_temp = convertPCLToOpen3D(temp);
             // Wrap the resulting Open3D cloud (here using the inlier cloud) into a variant.
             Open3DCloudInput open3d_input = open3d_temp.inlier_cloud;
             OPEN3DResult ransac_result = RansacPlaneSegmentation(open3d_input, voxel_size, distanceThreshold, ransac_n, maxIterations);
             PCLResult pcl_cloud = convertOpen3DToPCL(ransac_result);
-            current_cloud = pcl_cloud.inlier_cloud;
+            // current_cloud = pcl_cloud.inlier_cloud;
+            pclResult.inlier_cloud = pcl_cloud.inlier_cloud;
+        
             if (g_visualize)
             {
                 visualizePCL(pcl_cloud, visualization);
@@ -139,12 +154,14 @@ int main(int argc, char **argv)
             std::string visualization = pipeline[i]["parameters"]["visualization"].as<std::string>();
 
             PCLResult temp;
-            temp.inlier_cloud = current_cloud;
+            // temp.inlier_cloud = current_cloud;
+            temp.inlier_cloud = pclResult.inlier_cloud;
             OPEN3DResult open3d_temp = convertPCLToOpen3D(temp);
             Open3DCloudInput open3d_input = open3d_temp.inlier_cloud;
             OPEN3DResult least_square_result = LeastSquaresPlaneFitting(open3d_input, voxel_size, distanceThreshold);
             PCLResult pcl_cloud = convertOpen3DToPCL(least_square_result);
-            current_cloud = pcl_cloud.inlier_cloud;
+            pclResult.inlier_cloud = pcl_cloud.inlier_cloud;
+            pclResult.plane_coefficients = pcl_cloud.plane_coefficients;
             if (g_visualize)
             {
                 visualizePCL(pcl_cloud, visualization);
@@ -157,8 +174,9 @@ int main(int argc, char **argv)
             int maxIterations = pipeline[i]["parameters"]["maxIterations"].as<int>();
             std::string visualization = pipeline[i]["parameters"]["visualization"].as<std::string>();
 
-            PCLResult prosac_result = performPROSAC(current_cloud, voxel_size, distanceThreshold, maxIterations);
-            current_cloud = prosac_result.inlier_cloud;
+            PCLResult prosac_result = performPROSAC(pclResult.inlier_cloud, voxel_size, distanceThreshold, maxIterations);
+            pclResult.inlier_cloud = prosac_result.inlier_cloud;
+            pclResult.plane_coefficients = prosac_result.plane_coefficients;
             if (g_visualize)
             {
                 visualizePCL(prosac_result, visualization);
@@ -171,8 +189,9 @@ int main(int argc, char **argv)
             int maxIterations = pipeline[i]["parameters"]["maxIterations"].as<int>();
             std::string visualization = pipeline[i]["parameters"]["visualization"].as<std::string>();
 
-            PCLResult ransac_result = performRANSAC(current_cloud, voxel_size, distanceThreshold, maxIterations);
-            current_cloud = ransac_result.inlier_cloud;
+            PCLResult ransac_result = performRANSAC(pclResult.inlier_cloud, voxel_size, distanceThreshold, maxIterations);
+            pclResult.inlier_cloud = ransac_result.inlier_cloud;
+            pclResult.plane_coefficients = ransac_result.plane_coefficients;
             if (g_visualize)
             {
                 visualizePCL(ransac_result, visualization);
@@ -185,8 +204,8 @@ int main(int argc, char **argv)
             int maxIterations = pipeline[i]["parameters"]["maxIterations"].as<int>();
             std::string visualization = pipeline[i]["parameters"]["visualization"].as<std::string>();
 
-            PCLResult lmeds_result = performLMEDS(current_cloud, voxel_size, distanceThreshold, maxIterations);
-            current_cloud = lmeds_result.inlier_cloud;
+            PCLResult lmeds_result = performLMEDS(pclResult.inlier_cloud, voxel_size, distanceThreshold, maxIterations);
+            pclResult.inlier_cloud = lmeds_result.inlier_cloud;
             if (g_visualize)
             {
                 visualizePCL(lmeds_result, visualization);
@@ -200,8 +219,8 @@ int main(int argc, char **argv)
             float angleThreshold = pipeline[i]["parameters"]["angleThreshold"].as<float>();
             std::string visualization = pipeline[i]["parameters"]["visualization"].as<std::string>();
 
-            PCLResult avgGrad_result = Average3DGradient(current_cloud, voxelSize, neighborRadius, gradientThreshold, angleThreshold);
-            current_cloud = avgGrad_result.inlier_cloud;
+            PCLResult avgGrad_result = Average3DGradient(pclResult.inlier_cloud, voxelSize, neighborRadius, gradientThreshold, angleThreshold);
+            pclResult.inlier_cloud = avgGrad_result.inlier_cloud;
             if (g_visualize)
             {
                 visualizePCL(avgGrad_result, visualization);
@@ -217,8 +236,8 @@ int main(int argc, char **argv)
             int normal_k_search = pipeline[i]["parameters"]["normal_k_search"].as<int>();
             std::string visualization = pipeline[i]["parameters"]["visualization"].as<std::string>();
 
-            PCLResult regionGrowingResult = regionGrowingSegmentation(current_cloud, voxelSize, angleThreshold, min_cluster_size, max_cluster_size, number_of_neighbours, normal_k_search);
-            current_cloud = regionGrowingResult.inlier_cloud;
+            PCLResult regionGrowingResult = regionGrowingSegmentation(pclResult.inlier_cloud, voxelSize, angleThreshold, min_cluster_size, max_cluster_size, number_of_neighbours, normal_k_search);
+            pclResult.inlier_cloud = regionGrowingResult.inlier_cloud;
             if (g_visualize)
             {
                 visualizePCL(regionGrowingResult, visualization);
@@ -237,9 +256,9 @@ int main(int argc, char **argv)
 
             std::string visualization = pipeline[i]["parameters"]["visualization"].as<std::string>();
 
-            PCLResult regionGrowingResult = regionGrowingSegmentation2(current_cloud, voxelSize, angleThreshold, min_cluster_size, max_cluster_size, number_of_neighbours, normal_k_search, curvature_threshold, height_threshold);
-            // PCLResult regionGrowingResult = calculateNormalsAndCurvature(current_cloud);
-            current_cloud = regionGrowingResult.inlier_cloud;
+            PCLResult regionGrowingResult = regionGrowingSegmentation2(pclResult.inlier_cloud, voxelSize, angleThreshold, min_cluster_size, max_cluster_size, number_of_neighbours, normal_k_search, curvature_threshold, height_threshold);
+            // PCLResult regionGrowingResult = calculateNormalsAndCurvature(pclResult.inlier_cloud);
+            pclResult.inlier_cloud = regionGrowingResult.inlier_cloud;
             if (g_visualize)
             {
                 visualizePCL(regionGrowingResult, visualization);
@@ -252,8 +271,10 @@ int main(int argc, char **argv)
             float angleThreshold = pipeline[i]["parameters"]["angleThreshold"].as<float>();
             std::string visualization = pipeline[i]["parameters"]["visualization"].as<std::string>();
 
-            PCLResult PCA_Result = PrincipleComponentAnalysis(current_cloud, voxelSize, angleThreshold, k);
-            current_cloud = PCA_Result.inlier_cloud;
+            PCLResult PCA_Result = PrincipleComponentAnalysis(pclResult.inlier_cloud, voxelSize, angleThreshold, k);
+        
+            pclResult.inlier_cloud = PCA_Result.inlier_cloud;
+            pclResult.plane_coefficients = PCA_Result.plane_coefficients;
             if (g_visualize)
             {
                 visualizePCL(PCA_Result, visualization);
@@ -266,12 +287,12 @@ int main(int argc, char **argv)
             double clusterTolerance = pipeline[i]["parameters"]["clusterTolerance"].as<double>();
             auto environment_cloud = loadPCLCloud<PointT>(pcd_file);
             std::string visualization = pipeline[i]["parameters"]["visualization"].as<std::string>();
-            PCLResult SLZResult = findSafeLandingZones(current_cloud,
+            PCLResult SLZResult = findSafeLandingZones(pclResult.inlier_cloud,
                                                        environment_cloud,
                                                        landingRadius,
                                                        removalThreshold,
                                                        clusterTolerance);
-            current_cloud = SLZResult.inlier_cloud;
+            pclResult.inlier_cloud = SLZResult.inlier_cloud;
             if (g_visualize)
             {
                 visualizePCL(SLZResult, visualization);
@@ -286,41 +307,31 @@ int main(int argc, char **argv)
             std::string visualization = pipeline[i]["parameters"]["visualization"].as<std::string>();
             int landingZoneNumber = pipeline[i]["parameters"]["landingZoneNumber"].as<int>();
             int maxAttempts = pipeline[i]["parameters"]["maxAttempts"].as<int>();
-            PCLResult Result = octreeNeighborhoodPCAFilter(current_cloud, radius, voxelSize, k, angleThreshold, landingZoneNumber, maxAttempts);
+            
+            std::vector<SLZDCandidatePoints> candidatePoints;
+            PCLResult result;
+            SLZDCandidatePoints finalCandidate;
+            pcl::PointXYZI seed;
+           
+            seed.x = 344.993;
+            seed.y = 629.237;
+            seed.z = 39.8683;   
 
-            // auto Result,slz =octreeNeighborhoodPCAFilter(current_cloud,radius,voxelSize,k,angleThreshold, landingZoneNumber, maxAttempts);
-
-            /////////////////////////////
-            // int bestcandidateIndex =selectBestCandidate(slz);
-            ////////////////////////////
-            current_cloud = Result.inlier_cloud;
+            // Pass by reference for efficiency
+            std::tie(result, finalCandidate) = octreeNeighborhoodPCAFilter(pclResult.inlier_cloud, radius, voxelSize, k, angleThreshold, landingZoneNumber, maxAttempts);
+            
+            candidatePoints.push_back(finalCandidate);
+            // Add plane coeffiecient to the struct we gonaa pass to calculate roughness
+            result.plane_coefficients = pclResult.plane_coefficients;
+            rankCandidatePoints(candidatePoints, result);
+            
+           
+            pclResult.inlier_cloud = result.inlier_cloud;
             if (g_visualize)
             {
-                visualizePCL(Result, visualization);
+                visualizePCL(result, visualization);
             }
-        }
-        else if (step == "DataConfidence")
-        {
-            PCLResult result;
-            result.inlier_cloud = current_cloud;
-            double data_confidence = calculateDataConfidencePCL(result);
-            std::cout << "data confidence of the landing zone  : " << data_confidence << std::endl;
-        }
-        else if (step == "Roughness")
-        {
-            PCLResult result;
-            result.inlier_cloud = current_cloud;
-            double roughness = calculateRoughnessPCL(result);
-            std::cout << "Roughness of the landing zone  : " << roughness << std::endl;
-        }
-        else if (step == "Relief")
-        {
-            PCLResult result;
-            result.inlier_cloud = current_cloud;
-            double relief = calculateReliefPCL(result);
-            std::cout << "Relief of the landing zone  : " << relief << std::endl;
-        }
-        else
+        }else
         {
             std::cerr << "Unknown pipeline step: " << step << std::endl;
             return -1;
@@ -332,7 +343,7 @@ int main(int argc, char **argv)
     {
         std::cout << "\n--- Final Processed Cloud ---\n";
 
-        final_result.inlier_cloud = current_cloud;
+        final_result.inlier_cloud = pclResult.inlier_cloud;
         visualizePCL(final_result, final_result_visualization);
     }
 
