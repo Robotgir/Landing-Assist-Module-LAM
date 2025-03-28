@@ -465,6 +465,7 @@ kdtreeNeighborhoodPCAFilter(
         bool foundFlat = false;
         PCLResult bestFlatPatch;
         double bestCircularity = 0.0;
+        double finalSuccessfulRadius = 0.0;
 
         // "Grow" patch
         while (true) {
@@ -510,6 +511,7 @@ kdtreeNeighborhoodPCAFilter(
                     bestFlatPatch = pcaResult;
                     bestCircularity = circ;
                     foundFlat = true;
+                    finalSuccessfulRadius = currentRadius; 
                 }
                 currentRadius += radiusIncrement;
                 continue;
@@ -550,7 +552,8 @@ kdtreeNeighborhoodPCAFilter(
                                  - candidate.roughness;
                 // Detected surface
                 candidate.detectedSurface = bestFlatPatch.inlier_cloud;
-
+                // Final radius of the patch
+                candidate.patchRadius = finalSuccessfulRadius;
                 // Save this candidate in our vector
                 finalCandidates.push_back(candidate);
 
@@ -612,6 +615,7 @@ inline std::vector<SLZDCandidatePoints> rankCandidatePatches(
         std::cout << "  Data Confidence: " << cand.dataConfidence << "\n";
         std::cout << "  Relief: " << cand.relief << "\n";
         std::cout << "  Roughness: " << cand.roughness << "\n";
+        std::cout << "  Patch Radius: " << cand.patchRadius << "\n";
         std::cout << "--------------------------\n";
     }
     return candidatePoints;

@@ -321,7 +321,7 @@ int main(int argc, char **argv)
         
 
             std::vector<SLZDCandidatePoints> candidatePoints;
-            std::tie(result, candidatePoints) =kdtreeNeighborhoodPCAFilter(pclResult.inlier_cloud,
+            std::tie(result, candidatePoints) =octreeNeighborhoodPCAFilter(pclResult.inlier_cloud,
                                             radius, voxelSize, k, angleThreshold,
                                             landingZoneNumber, maxAttempts);
             

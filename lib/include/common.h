@@ -54,6 +54,7 @@ struct SLZDCandidatePoints {
     double roughness;  // Roughness value for the candidate landing zone
     double relief;  // Relief value for the candidate landing zone
     double score;  // Score of the candidate
+    double patchRadius; // final radius of the grown patch
     pcl::ModelCoefficients::Ptr plane_coefficients;  // Plane coefficients for the surface
 
     // Constructor to initialize the struct
