@@ -91,7 +91,7 @@ maxZ = pt.z;
 
 
 // We'll sample along z from patchMaxZ up to patchMaxZ+clearance in small steps
-inline bool isPatchCollisionFree(
+inline bool isPatchCollisionFreeKdtree(
     const pcl::PointCloud<PointT>::Ptr &cloud,
     pcl::KdTreeFLANN<PointT> &kdtree,
     double cx,            // Patch centroid X
@@ -144,8 +144,62 @@ inline bool isPatchCollisionFree(
     return true;
 }
 
+inline bool isPatchCollisionFreeOctree(
+    const pcl::PointCloud<PointT>::Ptr &cloud,
+    pcl::octree::OctreePointCloudSearch<PointT> &octree,  // Octree instead of KdTree
+    double cx,            // Patch centroid X
+    double cy,            // Patch centroid Y
+    double patchRadius,   // Patch's XY radius
+    double patchMaxZ,     // Patch's highest Z
+    double margin,        // Additional margin above patchMaxZ considered an obstacle
+    double clearance,     // Total height above patchMaxZ to check
+    double step_size)     // Step size in Z
+{
+    // We'll sample from patchMaxZ in steps of step_size,
+    // up to patchMaxZ + clearance
+    int steps = static_cast<int>(std::ceil(clearance / step_size));
+    
+    // The threshold above which we consider it "blocked" if we find a point
+    double obstacleZThreshold = patchMaxZ + margin;
+    
+    for (int i = 0; i <= steps; i++) {
+        // Current Z level
+        double zCurrent = patchMaxZ + i * step_size;
+        
+        // Build a search point at this Z level, same XY center
+        PointT searchPt;
+        searchPt.x = static_cast<float>(cx);
+        searchPt.y = static_cast<float>(cy);
+        searchPt.z = static_cast<float>(zCurrent);
+        
+        // Perform a radius search with the same XY radius using the Octree
+        std::vector<int> indices;
+        std::vector<float> sqrDists;
+        int found = octree.radiusSearch(searchPt, static_cast<float>(patchRadius),
+                                        indices, sqrDists);
+        if (found <= 0) {
+            // No points at this level => no immediate obstacle here
+            continue;
+        }
 
-inline std::tuple<PCLResult, SLZDCandidatePoints> octreeNeighborhoodPCAFilter(
+        // Among these points, check if any have z > patchMaxZ + margin
+        // (i.e., actual obstacle above the patch)
+        for (int idx : indices) {
+            if (cloud->points[idx].z > obstacleZThreshold) {
+                // Found an obstacle -> patch is not collision-free
+                return false;
+            }
+        }
+    }
+
+    // If we finish the entire sampling without finding obstacles,
+    // then the patch is clear in that cylindrical region
+    return true;
+}
+
+//===================================kdtree=========================================================================================================================
+
+inline std::tuple<PCLResult, SLZDCandidatePoints> kdtreeNeighborhoodPCAFilter(
     const CloudInput<PointT>& input,
     double initRadius,
     float voxelSize,
@@ -291,7 +345,7 @@ inline std::tuple<PCLResult, SLZDCandidatePoints> octreeNeighborhoodPCAFilter(
             computePatchData(bestFlatPatch.inlier_cloud, cx, cy, patchR, patchMaxZ);
 
             // check if collision-free
-            bool collisionFree = isPatchCollisionFree(cloud, kdtree,
+            bool collisionFree = isPatchCollisionFreeKdtree(cloud, kdtree,
                                                       cx, cy,
                                                       patchR,
                                                       patchMaxZ,
@@ -342,9 +396,310 @@ inline std::tuple<PCLResult, SLZDCandidatePoints> octreeNeighborhoodPCAFilter(
     return { finalResult, finalCandidate };
 }
 
+//===================================octree=========================================================================================================================
+inline std::tuple<PCLResult, SLZDCandidatePoints> octreeNeighborhoodPCAFilter(
+    const CloudInput<PointT>& input,
+    double initRadius,
+    float voxelSize,
+    int k,
+    float angleThreshold,
+    int landingZoneNumber,
+    int maxAttempts)
+{
 
+    // 1) Load the cloud
+    srand(time(0));
+    SLZDCandidatePoints finalCandidate;
+    std::vector<PCLResult> candidatePatches;
+
+    std::cout << "Loading point cloud..." << std::endl;
+    auto cloud = loadPCLCloud<PointT>(input);
+    if (!cloud || cloud->empty()) {
+        std::cerr << "Error: Loaded point cloud is empty!" << std::endl;
+        return { {}, finalCandidate };
+    }
+
+    // 2) Compute bounding box (optional: to skip seeds near edges)
+    double minX = std::numeric_limits<double>::max(), maxX = -std::numeric_limits<double>::max();
+    double minY = std::numeric_limits<double>::max(), maxY = -std::numeric_limits<double>::max();
+    double minZ = std::numeric_limits<double>::max(), maxZ = -std::numeric_limits<double>::max();
+    for (const auto &pt : cloud->points) {
+        if (pt.x < minX) minX = pt.x;
+        if (pt.x > maxX) maxX = pt.x;
+        if (pt.y < minY) minY = pt.y;
+        if (pt.y > maxY) maxY = pt.y;
+        if (pt.z < minZ) minZ = pt.z;
+        if (pt.z > maxZ) maxZ = pt.z;
+    }
+
+    std::cout << "Cloud bounding box (XYZ): x=[" << minX << ", " << maxX
+              << "], y=[" << minY << ", " << maxY 
+              << "], z=[" << minZ << ", " << maxZ << "]\n";
+
+    
+              // 3) Build Octree
+    pcl::octree::OctreePointCloudSearch<PointT> octree(0.001);  // 0.1 is the resolution of the octree
+    octree.setInputCloud(cloud);
+    octree.addPointsFromInputCloud();
+    // // 3) Build KdTree
+    // pcl::KdTreeFLANN<PointT> kdtree;
+    // kdtree.setInputCloud(cloud);
+
+    // parameters
+    int attempts = 0;
+    double currentRadius = initRadius;
+    double radiusIncrement = 0.5;
+    double circularityThreshold = 0.8;
+
+    // for obstacle check
+    double clearance = 10.0;  // e.g. how high we check above patch
+    double margin = 0.01;     // how far above patchMaxZ to consider an obstacle
+    double step_size = 0.2;
+    // main loop
+    while ((candidatePatches.size() < static_cast<size_t>(landingZoneNumber)) &&
+           (attempts < maxAttempts))
+    {
+        attempts++;
+        int randomIndex = rand() % cloud->points.size();
+        PointT searchPoint = cloud->points[randomIndex];
+
+        // skip seeds near edges
+        if (searchPoint.x < (minX + initRadius) || searchPoint.x > (maxX - initRadius) ||
+            searchPoint.y < (minY + initRadius) || searchPoint.y > (maxY - initRadius))
+        {
+            std::cout << "Attempt " << attempts << ": Seed near edge => skip.\n";
+            continue;
+        }
+
+        std::cout << "Attempt " << attempts << ": seed= (" << searchPoint.x << ","
+                  << searchPoint.y << "," << searchPoint.z << ")\n";
+
+        bool foundFlat = false;
+        PCLResult bestFlatPatch;
+        double bestCircularity = 0.0;
+
+        // “grow” patch
+        while (true)
+        {
+            std::vector<int> idx;
+            std::vector<float> dist;
+            int found = octree.radiusSearch(searchPoint, currentRadius, idx, dist);
+            std::cout << "  radius= " << currentRadius << " => " << found << " neighbors.\n";
+            if (found < 3) break;
+
+            // build patch
+            pcl::PointCloud<PointT>::Ptr patch(new pcl::PointCloud<PointT>());
+            patch->reserve(found);
+            for (int i = 0; i < found; i++)
+                patch->points.push_back(cloud->points[idx[i]]);
+
+            // do PCA
+            PCLResult pcaResult = PrincipleComponentAnalysis(patch, 
+                                                             voxelSize, 
+                                                             angleThreshold, 
+                                                             k);
+
+            // check if flat
+            if (pcaResult.outlier_cloud->empty()) {
+                // if flat => check circularity
+                pcl::ConvexHull<PointT> chull;
+                chull.setInputCloud(patch);
+                chull.setDimension(2);
+                pcl::PointCloud<PointT>::Ptr hull(new pcl::PointCloud<PointT>());
+                chull.reconstruct(*hull);
+
+                double area=0, perimeter=0;
+                if (hull->size() >=3) {
+                    for (size_t i=0; i < hull->size(); i++){
+                        size_t j = (i+1)%hull->size();
+                        double xi= hull->points[i].x, yi= hull->points[i].y;
+                        double xj= hull->points[j].x, yj= hull->points[j].y;
+                        area += (xi*yj - xj*yi);
+                        perimeter += std::hypot(xj - xi, yj - yi);
+                    }
+                    area = std::fabs(area)*0.5;
+                }
+                double circ = (perimeter > 0)? (4.0*M_PI*area)/(perimeter*perimeter) : 0.0;
+                std::cout << "    => flat, circ= " << circ << "\n";
+
+                if (circ >= circularityThreshold) {
+                    // so far so good => keep track
+                    bestFlatPatch = pcaResult;
+                    bestCircularity= circ;
+                    foundFlat= true;
+                }
+                // else it's flat but not “circular enough,” keep going or break is your choice
+
+                // Grow radius
+                currentRadius += radiusIncrement;
+                continue;
+            }
+            else {
+                std::cout << "    => not flat => stop growing.\n";
+            }
+            break;
+        } // end while “grow"
+        // Print number of candidate patches found so far (before obstacle check).
+        std::cout << "Candidate patches found so far (before collision check): " << candidatePatches.size() << "\n";
+        // if we ended with foundFlat => do an obstacle check
+        if (foundFlat) {
+            // compute patch’s XY center, radius, maxZ
+            double cx=0, cy=0, patchR=0, patchMaxZ=0;
+            computePatchData(bestFlatPatch.inlier_cloud, cx, cy, patchR, patchMaxZ);
+
+            // check if collision-free
+            bool collisionFree = isPatchCollisionFreeOctree(cloud, octree,
+                                                      cx, cy,
+                                                      patchR,
+                                                      patchMaxZ,
+                                                      margin,    // how high above patch we consider obstacle
+                                                      clearance,  // how far above patchMaxZ we check
+                                                      step_size);
+            
+            if (collisionFree) {
+                std::cout << "Candidate patch is collision-free above => accepting.\n";
+                candidatePatches.push_back(bestFlatPatch);
+                finalCandidate.seedPoints.push_back(searchPoint);
+                finalCandidate.plane_coefficients.push_back(bestFlatPatch.plane_coefficients);
+            }
+            else {
+                std::cout << "Candidate patch has obstacles above => skip.\n";
+            }
+        }
+        else {
+            std::cout << "No suitable patch from this seed.\n";
+        }
+
+        // reset radius for next seed
+        currentRadius = initRadius;
+    } // end while attempts
+    std::cout << "Loop ended with attempts = " << attempts 
+          << ", found " << candidatePatches.size() << " patches.\n";
+
+    // Merge candidate patches
+    PCLResult finalResult;
+    finalResult.inlier_cloud.reset(new pcl::PointCloud<PointT>());
+    finalResult.outlier_cloud.reset(new pcl::PointCloud<PointT>());
+    finalResult.downsampled_cloud = cloud;
+
+    for (auto &patch : candidatePatches) {
+        finalResult.inlier_cloud->insert(finalResult.inlier_cloud->end(),
+                                         patch.inlier_cloud->begin(),
+                                         patch.inlier_cloud->end());
+        finalCandidate.detectedSurfaces.push_back(patch.inlier_cloud);
+    }
+    // Optionally fill outlier with all points
+    for (size_t i=0; i<cloud->size(); i++)
+        finalResult.outlier_cloud->push_back(cloud->points[i]);
+
+    std::cout << "Found " << candidatePatches.size() << " candidate patches.\n";
+    std::cout << "Inlier patch= " << finalResult.inlier_cloud->size() << " points.\n";
+    std::cout << "Outlier= " << finalResult.outlier_cloud->size() << " points.\n";
+
+    return { finalResult, finalCandidate };
+}
 //=====================================================================================================================================================================
-inline std::vector<SLZDCandidatePoints> rankCandidatePoints(
+// inline std::vector<SLZDCandidatePoints> rankCandidatePoints(
+//     std::vector<SLZDCandidatePoints>& candidatePoints, 
+//     PCLResult& result) 
+// {
+//     // For each candidate, compute metrics and individual surface scores
+//     for (auto& candidate : candidatePoints) {
+//         // Clear previous metrics
+//         candidate.dataConfidences.clear();
+//         candidate.reliefs.clear();
+//         candidate.roughnesses.clear();
+//         candidate.score.clear();
+        
+//         std::vector<double> individualScores;  // Temporary vector for individual surface scores
+
+//         // Iterate through each detected surface
+//         for (size_t i = 0; i < candidate.detectedSurfaces.size(); ++i) {
+//             PCLResult surfResult;
+//             surfResult.inlier_cloud = candidate.detectedSurfaces[i];
+//             surfResult.plane_coefficients = candidate.plane_coefficients[i];
+
+//             // Calculate metrics for this surface
+//             double dataConfidence = calculateDataConfidencePCL(surfResult);
+//             candidate.dataConfidences.push_back(dataConfidence);
+
+//             double relief = calculateReliefPCL(surfResult);
+//             candidate.reliefs.push_back(relief);
+
+//             double roughness = calculateRoughnessPCL(surfResult);
+//             candidate.roughnesses.push_back(roughness);
+
+//             // Compute the individual surface score: higher confidence, lower relief and roughness are preferred
+//             double surfaceScore = dataConfidence - relief - roughness;
+//             individualScores.push_back(surfaceScore);
+//         }
+        
+//         // Store the individual surface scores in candidate.score
+//         candidate.score = individualScores;
+        
+//         // Compute the final candidate score as the average of the individual surface scores
+//         double total = 0.0;
+//         for (double s : individualScores) {
+//             total += s;
+//         }
+//         double averageScore = individualScores.empty() ? 0.0 : total / individualScores.size();
+        
+//         // Clear individual scores and append only the final average score if you want to use it for sorting.
+//         // (Alternatively, you can store both if you wish.)
+//         candidate.score.clear();
+//         candidate.score.push_back(averageScore);
+//     }
+    
+//     // Sort candidate patches in descending order based on their final average score
+//     std::sort(candidatePoints.begin(), candidatePoints.end(), 
+//               [](const SLZDCandidatePoints& a, const SLZDCandidatePoints& b) {
+//                   double finalA = a.score.empty() ? 0.0 : a.score.back();
+//                   double finalB = b.score.empty() ? 0.0 : b.score.back();
+//                   return finalA > finalB; // Descending order: higher score is better
+//               }
+//     );
+    
+//     // Print detailed information for each candidate patch
+//     std::cout << "Candidate Patches Details (sorted in descending order):" << std::endl;
+//     for (size_t idx = 0; idx < candidatePoints.size(); idx++) {
+//          const auto& candidate = candidatePoints[idx];
+//          double finalScore = candidate.score.empty() ? 0.0 : candidate.score.back();
+//          std::cout << "Candidate " << idx + 1 << ":" << std::endl;
+//          std::cout << "  Final Average Score: " << finalScore << std::endl;
+         
+//          std::cout << "  Individual Surface Scores:" << std::endl;
+//          // Note: If you cleared individual scores and only stored the average,
+//          // you might want to print the stored data confidences, reliefs, and roughnesses instead.
+//          for (size_t i = 0; i < candidate.dataConfidences.size(); i++) {
+//             std::cout << "    Surface " << i + 1 << ":" << std::endl;
+//             std::cout << "      Data Confidence: " << candidate.dataConfidences[i] << std::endl;
+//             std::cout << "      Relief: " << candidate.reliefs[i] << std::endl;
+//             std::cout << "      Roughness: " << candidate.roughnesses[i] << std::endl;
+//          }
+         
+//          std::cout << "  Seed Points:" << std::endl;
+//          for (const auto& pt : candidate.seedPoints) {
+//              std::cout << "    (" << pt.x << ", " << pt.y << ", " << pt.z << ")" << std::endl;
+//          }
+         
+//          std::cout << "  Plane Coefficients per Surface:" << std::endl;
+//          for (size_t i = 0; i < candidate.plane_coefficients.size(); i++) {
+//              const auto& coeffs = candidate.plane_coefficients[i]->values;
+//              std::cout << "    Surface " << i + 1 << ": ";
+//              if (coeffs.size() >= 4) {
+//                  std::cout << "A=" << coeffs[0] << ", B=" << coeffs[1]
+//                            << ", C=" << coeffs[2] << ", D=" << coeffs[3];
+//              }
+//              std::cout << std::endl;
+//          }
+//          std::cout << "-------------------------------------------------" << std::endl;
+//     }
+    
+//     return candidatePoints;
+// }
+
+//============================================================================================================================================================
+inline std::vector<SLZDCandidatePoints> rankCandidatePatches(
     std::vector<SLZDCandidatePoints>& candidatePoints, 
     PCLResult& result) 
 {
@@ -377,6 +732,14 @@ inline std::vector<SLZDCandidatePoints> rankCandidatePoints(
             // Compute the individual surface score: higher confidence, lower relief and roughness are preferred
             double surfaceScore = dataConfidence - relief - roughness;
             individualScores.push_back(surfaceScore);
+
+            // Print the details for the surface
+            std::cout << "Surface " << i + 1 << " details:\n";
+            std::cout << "  Data Confidence: " << dataConfidence << "\n";
+            std::cout << "  Relief: " << relief << "\n";
+            std::cout << "  Roughness: " << roughness << "\n";
+            std::cout << "  Surface Score: " << surfaceScore << "\n";
+            std::cout << "--------------------------\n";
         }
         
         // Store the individual surface scores in candidate.score
@@ -389,10 +752,29 @@ inline std::vector<SLZDCandidatePoints> rankCandidatePoints(
         }
         double averageScore = individualScores.empty() ? 0.0 : total / individualScores.size();
         
-        // Clear individual scores and append only the final average score if you want to use it for sorting.
-        // (Alternatively, you can store both if you wish.)
-        candidate.score.clear();
+        // Store only the final average score for sorting candidates
         candidate.score.push_back(averageScore);
+
+        // Print the details for the candidate patch
+        std::cout << "Candidate Patch details (Rank):\n";
+        std::cout << "  Rank: " << candidatePoints.size() << "\n"; // Will be sorted later
+        std::cout << "  Final Average Score: " << averageScore << "\n";
+        std::cout << "  Data Confidences: ";
+        for (auto& dc : candidate.dataConfidences) {
+            std::cout << dc << " ";
+        }
+        std::cout << "\n";
+        std::cout << "  Reliefs: ";
+        for (auto& relief : candidate.reliefs) {
+            std::cout << relief << " ";
+        }
+        std::cout << "\n";
+        std::cout << "  Roughnesses: ";
+        for (auto& roughness : candidate.roughnesses) {
+            std::cout << roughness << " ";
+        }
+        std::cout << "\n";
+        std::cout << "--------------------------\n";
     }
     
     // Sort candidate patches in descending order based on their final average score
@@ -403,49 +785,181 @@ inline std::vector<SLZDCandidatePoints> rankCandidatePoints(
                   return finalA > finalB; // Descending order: higher score is better
               }
     );
-    
-    // Print detailed information for each candidate patch
-    std::cout << "Candidate Patches Details (sorted in descending order):" << std::endl;
-    for (size_t idx = 0; idx < candidatePoints.size(); idx++) {
-         const auto& candidate = candidatePoints[idx];
-         double finalScore = candidate.score.empty() ? 0.0 : candidate.score.back();
-         std::cout << "Candidate " << idx + 1 << ":" << std::endl;
-         std::cout << "  Final Average Score: " << finalScore << std::endl;
-         
-         std::cout << "  Individual Surface Scores:" << std::endl;
-         // Note: If you cleared individual scores and only stored the average,
-         // you might want to print the stored data confidences, reliefs, and roughnesses instead.
-         for (size_t i = 0; i < candidate.dataConfidences.size(); i++) {
-            std::cout << "    Surface " << i + 1 << ":" << std::endl;
-            std::cout << "      Data Confidence: " << candidate.dataConfidences[i] << std::endl;
-            std::cout << "      Relief: " << candidate.reliefs[i] << std::endl;
-            std::cout << "      Roughness: " << candidate.roughnesses[i] << std::endl;
-         }
-         
-         std::cout << "  Seed Points:" << std::endl;
-         for (const auto& pt : candidate.seedPoints) {
-             std::cout << "    (" << pt.x << ", " << pt.y << ", " << pt.z << ")" << std::endl;
-         }
-         
-         std::cout << "  Plane Coefficients per Surface:" << std::endl;
-         for (size_t i = 0; i < candidate.plane_coefficients.size(); i++) {
-             const auto& coeffs = candidate.plane_coefficients[i]->values;
-             std::cout << "    Surface " << i + 1 << ": ";
-             if (coeffs.size() >= 4) {
-                 std::cout << "A=" << coeffs[0] << ", B=" << coeffs[1]
-                           << ", C=" << coeffs[2] << ", D=" << coeffs[3];
-             }
-             std::cout << std::endl;
-         }
-         std::cout << "-------------------------------------------------" << std::endl;
+
+    // Print the ranked candidates and their surface ranks
+    std::cout << "Ranked Candidates (sorted by score):\n";
+    for (size_t i = 0; i < candidatePoints.size(); ++i) {
+        std::cout << "Rank " << i + 1 << " - Final Score: " 
+                  << candidatePoints[i].score.back() << "\n";
+
+        // For each candidate, print the rank of each surface
+        std::vector<std::pair<double, size_t>> surfaceRanks;
+        for (size_t j = 0; j < candidatePoints[i].score.size() - 1; ++j) {
+            surfaceRanks.push_back({candidatePoints[i].score[j], j});
+        }
+
+        // Sort the surfaces by score (descending order)
+        std::sort(surfaceRanks.begin(), surfaceRanks.end(), std::greater<std::pair<double, size_t>>());
+
+        // Print surface ranks
+        std::cout << "Surfaces ranked by score:\n";
+        for (size_t j = 0; j < surfaceRanks.size(); ++j) {
+            std::cout << "  Surface " << surfaceRanks[j].second + 1 
+                      << " - Surface Score: " << surfaceRanks[j].first << "\n";
+        }
+        std::cout << "--------------------------\n";
     }
-    
+
+    // Return sorted candidate points
     return candidatePoints;
 }
 
+
+
+//================================Visualize patches with rankings =====================================================================================================
+     
+
+// void visualizeRankedCandidatePatches(const std::vector<SLZDCandidatePoints>& candidatePoints, const PCLResult &result)
+// {
+//     // Create a PCLVisualizer with a given window name.
+//     pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer(result.pcl_method + " PCL RESULT"));
+//     viewer->setBackgroundColor(1.0, 1.0, 1.0);
+
+//       // Add the outlier cloud (red) if available AFTER candidate surfaces,
+//     // so it is not hidden by candidate patch visualizations.
+//     if (result.outlier_cloud && !result.outlier_cloud->empty()) {
+//         pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZI> outlierColorHandler(result.outlier_cloud, 255, 0, 0);
+//         viewer->addPointCloud<pcl::PointXYZI>(result.outlier_cloud, outlierColorHandler, "outlier_cloud");
+//         viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "outlier_cloud");
+//     }
+
+//     // Add the inlier cloud (green) if available.
+//     if (result.inlier_cloud && !result.inlier_cloud->empty()) {
+//         pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZI> inlierColorHandler(result.inlier_cloud, 0, 255, 0);
+//         viewer->addPointCloud<pcl::PointXYZI>(result.inlier_cloud, inlierColorHandler, "inlier_cloud");
+//         viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "inlier_cloud");
+//     }
+
+//     // For each candidate patch (sorted by rank), add its detected surfaces and a 3D text label.
+//     for (size_t idx = 0; idx < candidatePoints.size(); ++idx) {
+//         const auto& candidate = candidatePoints[idx];
+
+//         // Add each detected surface for the candidate.
+//         for (size_t i = 0; i < candidate.detectedSurfaces.size(); ++i) {
+//             std::stringstream ss;
+//             ss << "candidate_" << idx << "_surface_" << i;
+//             viewer->addPointCloud<pcl::PointXYZI>(candidate.detectedSurfaces[i], ss.str());
+//         }
+
+//         // Compute the patch center from the seed points.
+//         // (Assuming candidate.seedPoints contains points of type pcl::PointXYZI)
+//         Eigen::Vector4f center(0.f, 0.f, 0.f, 0.f);
+//         for (const auto &pt : candidate.seedPoints) {
+//             center += Eigen::Vector4f(pt.x, pt.y, pt.z, 1.f);
+//         }
+//         center /= static_cast<float>(candidate.seedPoints.size());
+        
+//         // Convert to pcl::PointXYZ (discard intensity).
+//         pcl::PointXYZ centerXYZ;
+//         centerXYZ.x = center[0];
+//         centerXYZ.y = center[1];
+//         centerXYZ.z = center[2];
+
+//         // Create a label for the rank (ranks start at 1).
+//         std::stringstream label;
+//         label << "Rank " << (idx + 1);
+
+//         // Add a 3D text label at the patch center.
+//         viewer->addText3D<pcl::PointXYZ>(label.str(), centerXYZ, 10.2, 1.0, 0.0, 1.0, "label_" + std::to_string(idx));
+//     }
+
+  
+//     viewer->resetCamera();
+//     // Main visualization loop.
+//     while (!viewer->wasStopped()) {
+//         viewer->spinOnce(100);
+//         std::this_thread::sleep_for(std::chrono::milliseconds(100));
+//     }
+// }
+
+void visualizeRankedCandidatePatches(const std::vector<SLZDCandidatePoints>& candidatePoints, const PCLResult &result)
+{
+    // Create a PCLVisualizer with a given window name.
+    pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer(result.pcl_method + " PCL RESULT"));
+    viewer->setBackgroundColor(1.0, 1.0, 1.0);
+
+    // Add the outlier cloud (red) if available AFTER candidate surfaces,
+    // so it is not hidden by candidate patch visualizations.
+    if (result.outlier_cloud && !result.outlier_cloud->empty()) {
+        pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZI> outlierColorHandler(result.outlier_cloud, 255, 0, 0);
+        viewer->addPointCloud<pcl::PointXYZI>(result.outlier_cloud, outlierColorHandler, "outlier_cloud");
+        viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "outlier_cloud");
+    }
+
+    // Add the inlier cloud (green) if available.
+    if (result.inlier_cloud && !result.inlier_cloud->empty()) {
+        pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZI> inlierColorHandler(result.inlier_cloud, 0, 255, 0);
+        viewer->addPointCloud<pcl::PointXYZI>(result.inlier_cloud, inlierColorHandler, "inlier_cloud");
+        viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "inlier_cloud");
+    }
+
+    // For each candidate patch (sorted by rank), add its detected surfaces and a 3D text label.
+    std::cout << "Candidate patches size: " << candidatePoints.size() << std::endl;
+    for (size_t idx = 0; idx < candidatePoints.size(); ++idx) {
+        const auto& candidate = candidatePoints[idx];
+
+        std::cout << "Candidate Patch " << idx + 1 << " has " << candidate.detectedSurfaces.size() << " surfaces.\n";
+
+        // Create a vector of surface scores and their indices for sorting
+        std::vector<std::pair<double, size_t>> surfaceScores;
+        for (size_t i = 0; i < candidate.detectedSurfaces.size(); ++i) {
+            double surfaceScore = candidate.score[i]; // Assuming surface score is stored in candidate.score[i]
+            surfaceScores.push_back({surfaceScore, i});
+        }
+
+        // Sort surfaces by score in descending order
+        std::sort(surfaceScores.begin(), surfaceScores.end(), std::greater<std::pair<double, size_t>>());
+
+        // Add each detected surface for the candidate, sorted by surface score
+        for (size_t rank = 0; rank < surfaceScores.size(); ++rank) {
+            size_t i = surfaceScores[rank].second;
+            std::stringstream ss;
+            ss << "candidate_" << idx << "_surface_" << i;
+            viewer->addPointCloud<pcl::PointXYZI>(candidate.detectedSurfaces[i], ss.str());
+
+            // Compute the patch center from the seed points.
+            Eigen::Vector4f center(0.f, 0.f, 0.f, 0.f);
+            for (const auto &pt : candidate.seedPoints) {
+                center += Eigen::Vector4f(pt.x, pt.y, pt.z, 1.f);
+            }
+            center /= static_cast<float>(candidate.seedPoints.size());
+
+            pcl::PointXYZ centerXYZ;
+            centerXYZ.x = center[0];
+            centerXYZ.y = center[1];
+            centerXYZ.z = center[2];
+
+            // Create a label for the rank based on the sorted surface
+            std::stringstream label;
+            label << "Rank " << rank + 1; // Rank starts from 1
+
+            // Add a 3D text label at the patch center.
+            viewer->addText3D<pcl::PointXYZ>(label.str(), centerXYZ, 2.2, 1.0, 0.0, 1.0, "label_" + std::to_string(i));
+        }
+    }
+
+    viewer->resetCamera();
+    // Main visualization loop.
+    while (!viewer->wasStopped()) {
+        viewer->spinOnce(100);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+}
+
+
 //=========================================================================================================================================================
 // working normaly without obstaccle filtering 
-// inline std::tuple<PCLResult, SLZDCandidatePoints> octreeNeighborhoodPCAFilter(
+// inline std::tuple<PCLResult, SLZDCandidatePoints> octreeNeighborhoodPCAFilter1(
 //     const CloudInput<PointT>& input,
 //     double initRadius,
 //     float voxelSize,

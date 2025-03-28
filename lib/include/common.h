@@ -60,6 +60,74 @@ struct SLZDCandidatePoints {
     }
 
 };
+
+// struct SLZDCandidatePoints {
+//     pcl::PointXYZ seedPoint;  // A single seed point used to calculate the circle plane
+//     std::shared_ptr<pcl::PointCloud<PointT>> detectedSurface;  // Single detected surface, represented as a point cloud
+//     double dataConfidence;  // Data confidence for the candidate zone
+//     double roughness;  // Roughness value for the candidate landing zone
+//     double relief;  // Relief value for the candidate landing zone
+//     double score;  // Score of the candidate
+//     pcl::ModelCoefficients::Ptr plane_coefficients;  // Plane coefficients for the surface
+
+//     // Constructor to initialize the struct
+//     SLZDCandidatePoints()
+//         : dataConfidence(0.0), roughness(0.0), relief(0.0), score(0.0) {
+//         // Nothing to initialize as the struct contains single values now
+//     }
+// };
+
+
+struct Open3DCandidatePoints {
+    std::shared_ptr<open3d::geometry::PointCloud> seedPointCloud;  // Open3D PointCloud for seed points
+    std::vector<std::shared_ptr<open3d::geometry::PointCloud>> detectedSurfaces;  // Open3D PointCloud for detected surfaces
+    std::vector<double> dataConfidences;  // Data confidences (remains the same as PCL)
+    std::vector<double> roughnesses;  // Roughness values (remains the same as PCL)
+    std::vector<double> reliefs;  // Relief values (remains the same as PCL)
+    std::vector<double> score;  // Final scores (remains the same as PCL)
+    std::vector<std::vector<double>> plane_coefficients;  // Plane coefficients as a vector of doubles [A, B, C, D] for each plane
+
+    // Constructor to initialize the struct
+    Open3DCandidatePoints() {
+        // Initialize the vectors if needed
+    }
+};
+
+
+inline Open3DCandidatePoints convertSLZDCandidatePointsToOpen3D(const SLZDCandidatePoints &slzd_candidate) {
+    Open3DCandidatePoints open3d_candidate;
+
+    // Convert seed points to Open3D PointCloud
+    open3d_candidate.seedPointCloud = std::make_shared<open3d::geometry::PointCloud>();
+    for (const auto &pt : slzd_candidate.seedPoints) {
+        open3d_candidate.seedPointCloud->points_.push_back(Eigen::Vector3d(pt.x, pt.y, pt.z));
+    }
+
+    // Convert detected surfaces to Open3D PointClouds
+    for (const auto &detected_surface : slzd_candidate.detectedSurfaces) {
+        auto open3d_surface = std::make_shared<open3d::geometry::PointCloud>();
+        for (const auto &pt : detected_surface->points) {
+            open3d_surface->points_.push_back(Eigen::Vector3d(pt.x, pt.y, pt.z));
+        }
+        open3d_candidate.detectedSurfaces.push_back(open3d_surface);
+    }
+
+    // Transfer other attributes (confidence, roughness, relief, score)
+    open3d_candidate.dataConfidences = slzd_candidate.dataConfidences;
+    open3d_candidate.roughnesses = slzd_candidate.roughnesses;
+    open3d_candidate.reliefs = slzd_candidate.reliefs;
+    open3d_candidate.score = slzd_candidate.score;
+
+    // Transfer plane coefficients as a vector of doubles
+    for (const auto &coeffs : slzd_candidate.plane_coefficients) {
+        open3d_candidate.plane_coefficients.push_back(
+            {coeffs->values[0], coeffs->values[1], coeffs->values[2], coeffs->values[3]}
+        );
+    }
+
+    return open3d_candidate;
+}
+
 //===================================Function to convert OPEN3D to PCL ==============================================
 inline PCLResult convertOpen3DToPCL(const OPEN3DResult &open3d_result) {
     PCLResult pcl_result;
@@ -248,7 +316,7 @@ inline void visualizePCL(const PCLResult &result, const std::string& cloud = "bo
       new pcl::visualization::PCLVisualizer(result.pcl_method + " PCL RESULT "));
   viewer->setBackgroundColor(1.0, 1.0, 1.0);
 
-  // Add the outlier cloud (red) if available.
+  // Add the outlier cloud (red) if available.  
   if (result.outlier_cloud && !result.outlier_cloud->empty() && (cloud == "outlier_cloud" || cloud == "both"))
   {
     pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZI> outlierColorHandler(result.outlier_cloud, 255, 0, 0);

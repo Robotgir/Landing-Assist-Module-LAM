@@ -13,7 +13,7 @@ using PointT = pcl::PointXYZI;
 int main(int argc, char **argv)
 {
 
-    std::string config_file = "/home/airsim_user/Landing-Assist-Module-LAM/config/pipeline2Octree.yaml";
+    std::string config_file = "/home/airsim_user/Landing-Assist-Module-LAM/lib/config/pipeline2Octree.yaml";
     // Load YAML configuration.
     YAML::Node config = YAML::LoadFile(config_file);
     YAML::Node params = config["ros__parameters"];
@@ -177,6 +177,7 @@ int main(int argc, char **argv)
             PCLResult prosac_result = performPROSAC(pclResult.inlier_cloud, voxel_size, distanceThreshold, maxIterations);
             pclResult.inlier_cloud = prosac_result.inlier_cloud;
             pclResult.plane_coefficients = prosac_result.plane_coefficients;
+            rankCandidatePatchFromPCLResult(pclResult);
             if (g_visualize)
             {
                 visualizePCL(prosac_result, visualization);
@@ -192,6 +193,7 @@ int main(int argc, char **argv)
             PCLResult ransac_result = performRANSAC(pclResult.inlier_cloud, voxel_size, distanceThreshold, maxIterations);
             pclResult.inlier_cloud = ransac_result.inlier_cloud;
             pclResult.plane_coefficients = ransac_result.plane_coefficients;
+            rankCandidatePatchFromPCLResult(pclResult);
             if (g_visualize)
             {
                 visualizePCL(ransac_result, visualization);
@@ -323,15 +325,22 @@ int main(int argc, char **argv)
             candidatePoints.push_back(finalCandidate);
             // Add plane coeffiecient to the struct we gonaa pass to calculate roughness
             result.plane_coefficients = pclResult.plane_coefficients;
-            rankCandidatePoints(candidatePoints, result);
-            
+            auto candidates = rankCandidatePatches(candidatePoints, result);
+            // auto Open3DCandidatePatches = convertSLZDCandidatePointsToOpen3D(rankedCandidatePatches);
            
             pclResult.inlier_cloud = result.inlier_cloud;
             if (g_visualize)
             {
-                visualizePCL(result, visualization);
+                // visualizePCL(result, visualization);
+                visualizeRankedCandidatePatches(candidates, result);
+                // visualizeRankedCandidatePatches(rankedCandidatePatches,pclResult);
+                // visualizeOpen3DCandidatePoints(Open3DCandidatePatches);
             }
-        }else
+        }else if(step == "HazarMetrices"){
+            std::string hazardMetricsName = pipeline[i]["parameters"]["hazard"].as<std::string>();
+            auto hazard = rankCandidatePatchFromPCLResult(pclResult, hazardMetricsName);
+        }
+        else
         {
             std::cerr << "Unknown pipeline step: " << step << std::endl;
             return -1;

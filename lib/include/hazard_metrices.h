@@ -1393,6 +1393,108 @@ inline double calculateDataConfidencePCL(PCLResult& result)
     return data_confidence;
 }
 
+enum MetricType {
+  DATA_CONFIDENCE = 1,  // 0001
+  RELIEF = 2,           // 0010
+  ROUGHNESS = 4,        // 0100
+  ALL = 7               // 0111 (all metrics)
+};
+
+inline SLZDCandidatePoints rankCandidatePatchFromPCLResult(PCLResult& result, const std::string& metrics = "ALL") {
+  // Create an SLZDCandidatePoints object for the result
+  SLZDCandidatePoints candidate;
+
+  // Clear previous metrics
+  candidate.dataConfidences.clear();
+  candidate.reliefs.clear();
+  candidate.roughnesses.clear();
+  candidate.score.clear();
+
+  // Check if the result contains a valid inlier cloud
+  if (result.inlier_cloud && !result.inlier_cloud->points.empty()) {
+      PCLResult surfResult;
+      surfResult.inlier_cloud = result.inlier_cloud;
+      surfResult.plane_coefficients = result.plane_coefficients;
+
+      // Calculate all metrics if "ALL" is selected
+      if (metrics == "ALL") {
+          double dataConfidence = calculateDataConfidencePCL(surfResult);
+          candidate.dataConfidences.push_back(dataConfidence);
+
+          double relief = calculateReliefPCL(surfResult);
+          candidate.reliefs.push_back(relief);
+
+          double roughness = calculateRoughnessPCL(surfResult);
+          candidate.roughnesses.push_back(roughness);
+      }
+      // Calculate data confidence only if specified
+      else if (metrics == "DATA_CONFIDENCE") {
+          double dataConfidence = calculateDataConfidencePCL(surfResult);
+          candidate.dataConfidences.push_back(dataConfidence);
+      }
+      // Calculate relief only if specified
+      else if (metrics == "RELIEF") {
+          double relief = calculateReliefPCL(surfResult);
+          candidate.reliefs.push_back(relief);
+      }
+      // Calculate roughness only if specified
+      else if (metrics == "ROUGHNESS") {
+          double roughness = calculateRoughnessPCL(surfResult);
+          candidate.roughnesses.push_back(roughness);
+      }
+      else {
+          std::cerr << "[rankCandidatePatchFromPCLResult] Error: Invalid metric specified." << std::endl;
+      }
+
+      // Compute the surface score if any of the metrics are calculated
+      double surfaceScore = 0.0;
+      if (metrics == "ALL" || metrics == "DATA_CONFIDENCE") {
+          surfaceScore += candidate.dataConfidences.back();
+      }
+      if (metrics == "ALL" || metrics == "RELIEF") {
+          surfaceScore -= candidate.reliefs.back();
+      }
+      if (metrics == "ALL" || metrics == "ROUGHNESS") {
+          surfaceScore -= candidate.roughnesses.back();
+      }
+
+      candidate.score.push_back(surfaceScore);
+
+      // Print details of the candidate patch
+      std::cout << "Candidate Patch Details:" << std::endl;
+      if (metrics == "ALL" || metrics == "DATA_CONFIDENCE") {
+          std::cout << "  Data Confidence: " << candidate.dataConfidences.back() << std::endl;
+      }
+      if (metrics == "ALL" || metrics == "RELIEF") {
+          std::cout << "  Relief: " << candidate.reliefs.back() << std::endl;
+      }
+      if (metrics == "ALL" || metrics == "ROUGHNESS") {
+          std::cout << "  Roughness: " << candidate.roughnesses.back() << std::endl;
+      }
+  } else {
+      std::cerr << "[rankCandidatePatchFromPCLResult] Error: Inlier cloud is empty." << std::endl;
+  }
+
+  // Compute the final candidate score as the average (if more than one patch is in the result)
+  double total = 0.0;
+  for (double s : candidate.score) {
+      total += s;
+  }
+  double averageScore = candidate.score.empty() ? 0.0 : total / candidate.score.size();
+
+  // Set the final average score
+  candidate.score.clear();
+  candidate.score.push_back(averageScore);
+
+  // Print the final score
+  std::cout << "  Final Average Score: " << averageScore << std::endl;
+
+  // Return the candidate object
+  return candidate;
+}
+
+
+
 
 #endif 
 
