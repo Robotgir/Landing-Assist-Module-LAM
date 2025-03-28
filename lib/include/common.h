@@ -46,87 +46,23 @@ struct PCLResult {
       Eigen::Vector4d plane_coefficients;  // To store the plane model: [a, b, c, d]
   };
 //======================================STRUCT TO HOLD CANDIDATE POINTS ============================================
+
 struct SLZDCandidatePoints {
-    std::vector<PointT> seedPoints;  // Array of seed points used to calculate the circle plane
-    std::vector<std::shared_ptr<pcl::PointCloud<PointT>>> detectedSurfaces; // Array of detected surfaces, represented as point clouds
-    std::vector<double> dataConfidences; // Array of data confidence values for the candidate zones
-    std::vector<double> roughnesses;  // Array of roughness values for the candidate landing zones
-    std::vector<double> reliefs;  // Array of relief values for the candidate landing zones
-    std::vector<double> score;
-    std::vector<pcl::ModelCoefficients::Ptr> plane_coefficients;
-    // Constructor to initialize the struct
-    SLZDCandidatePoints() {
-        // No need to initialize these with default values, as they are vectors and can be resized later
-    }
-
-};
-
-// struct SLZDCandidatePoints {
-//     pcl::PointXYZ seedPoint;  // A single seed point used to calculate the circle plane
-//     std::shared_ptr<pcl::PointCloud<PointT>> detectedSurface;  // Single detected surface, represented as a point cloud
-//     double dataConfidence;  // Data confidence for the candidate zone
-//     double roughness;  // Roughness value for the candidate landing zone
-//     double relief;  // Relief value for the candidate landing zone
-//     double score;  // Score of the candidate
-//     pcl::ModelCoefficients::Ptr plane_coefficients;  // Plane coefficients for the surface
-
-//     // Constructor to initialize the struct
-//     SLZDCandidatePoints()
-//         : dataConfidence(0.0), roughness(0.0), relief(0.0), score(0.0) {
-//         // Nothing to initialize as the struct contains single values now
-//     }
-// };
-
-
-struct Open3DCandidatePoints {
-    std::shared_ptr<open3d::geometry::PointCloud> seedPointCloud;  // Open3D PointCloud for seed points
-    std::vector<std::shared_ptr<open3d::geometry::PointCloud>> detectedSurfaces;  // Open3D PointCloud for detected surfaces
-    std::vector<double> dataConfidences;  // Data confidences (remains the same as PCL)
-    std::vector<double> roughnesses;  // Roughness values (remains the same as PCL)
-    std::vector<double> reliefs;  // Relief values (remains the same as PCL)
-    std::vector<double> score;  // Final scores (remains the same as PCL)
-    std::vector<std::vector<double>> plane_coefficients;  // Plane coefficients as a vector of doubles [A, B, C, D] for each plane
+    pcl::PointXYZ seedPoint;  // A single seed point used to calculate the circle plane
+    std::shared_ptr<pcl::PointCloud<PointT>> detectedSurface;  // Single detected surface, represented as a point cloud
+    double dataConfidence;  // Data confidence for the candidate zone
+    double roughness;  // Roughness value for the candidate landing zone
+    double relief;  // Relief value for the candidate landing zone
+    double score;  // Score of the candidate
+    pcl::ModelCoefficients::Ptr plane_coefficients;  // Plane coefficients for the surface
 
     // Constructor to initialize the struct
-    Open3DCandidatePoints() {
-        // Initialize the vectors if needed
+    SLZDCandidatePoints()
+        : dataConfidence(0.0), roughness(0.0), relief(0.0), score(0.0) {
+        // Nothing to initialize as the struct contains single values now
     }
 };
 
-
-inline Open3DCandidatePoints convertSLZDCandidatePointsToOpen3D(const SLZDCandidatePoints &slzd_candidate) {
-    Open3DCandidatePoints open3d_candidate;
-
-    // Convert seed points to Open3D PointCloud
-    open3d_candidate.seedPointCloud = std::make_shared<open3d::geometry::PointCloud>();
-    for (const auto &pt : slzd_candidate.seedPoints) {
-        open3d_candidate.seedPointCloud->points_.push_back(Eigen::Vector3d(pt.x, pt.y, pt.z));
-    }
-
-    // Convert detected surfaces to Open3D PointClouds
-    for (const auto &detected_surface : slzd_candidate.detectedSurfaces) {
-        auto open3d_surface = std::make_shared<open3d::geometry::PointCloud>();
-        for (const auto &pt : detected_surface->points) {
-            open3d_surface->points_.push_back(Eigen::Vector3d(pt.x, pt.y, pt.z));
-        }
-        open3d_candidate.detectedSurfaces.push_back(open3d_surface);
-    }
-
-    // Transfer other attributes (confidence, roughness, relief, score)
-    open3d_candidate.dataConfidences = slzd_candidate.dataConfidences;
-    open3d_candidate.roughnesses = slzd_candidate.roughnesses;
-    open3d_candidate.reliefs = slzd_candidate.reliefs;
-    open3d_candidate.score = slzd_candidate.score;
-
-    // Transfer plane coefficients as a vector of doubles
-    for (const auto &coeffs : slzd_candidate.plane_coefficients) {
-        open3d_candidate.plane_coefficients.push_back(
-            {coeffs->values[0], coeffs->values[1], coeffs->values[2], coeffs->values[3]}
-        );
-    }
-
-    return open3d_candidate;
-}
 
 //===================================Function to convert OPEN3D to PCL ==============================================
 inline PCLResult convertOpen3DToPCL(const OPEN3DResult &open3d_result) {

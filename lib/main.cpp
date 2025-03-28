@@ -159,6 +159,7 @@ int main(int argc, char **argv)
             OPEN3DResult open3d_temp = convertPCLToOpen3D(temp);
             Open3DCloudInput open3d_input = open3d_temp.inlier_cloud;
             OPEN3DResult least_square_result = LeastSquaresPlaneFitting(open3d_input, voxel_size, distanceThreshold);
+
             PCLResult pcl_cloud = convertOpen3DToPCL(least_square_result);
             pclResult.inlier_cloud = pcl_cloud.inlier_cloud;
             pclResult.plane_coefficients = pcl_cloud.plane_coefficients;
@@ -177,7 +178,7 @@ int main(int argc, char **argv)
             PCLResult prosac_result = performPROSAC(pclResult.inlier_cloud, voxel_size, distanceThreshold, maxIterations);
             pclResult.inlier_cloud = prosac_result.inlier_cloud;
             pclResult.plane_coefficients = prosac_result.plane_coefficients;
-            rankCandidatePatchFromPCLResult(pclResult);
+            
             if (g_visualize)
             {
                 visualizePCL(prosac_result, visualization);
@@ -193,7 +194,7 @@ int main(int argc, char **argv)
             PCLResult ransac_result = performRANSAC(pclResult.inlier_cloud, voxel_size, distanceThreshold, maxIterations);
             pclResult.inlier_cloud = ransac_result.inlier_cloud;
             pclResult.plane_coefficients = ransac_result.plane_coefficients;
-            rankCandidatePatchFromPCLResult(pclResult);
+            
             if (g_visualize)
             {
                 visualizePCL(ransac_result, visualization);
@@ -208,6 +209,8 @@ int main(int argc, char **argv)
 
             PCLResult lmeds_result = performLMEDS(pclResult.inlier_cloud, voxel_size, distanceThreshold, maxIterations);
             pclResult.inlier_cloud = lmeds_result.inlier_cloud;
+            pclResult.plane_coefficients = lmeds_result.plane_coefficients;
+            
             if (g_visualize)
             {
                 visualizePCL(lmeds_result, visualization);
@@ -223,6 +226,7 @@ int main(int argc, char **argv)
 
             PCLResult avgGrad_result = Average3DGradient(pclResult.inlier_cloud, voxelSize, neighborRadius, gradientThreshold, angleThreshold);
             pclResult.inlier_cloud = avgGrad_result.inlier_cloud;
+            
             if (g_visualize)
             {
                 visualizePCL(avgGrad_result, visualization);
@@ -277,6 +281,7 @@ int main(int argc, char **argv)
         
             pclResult.inlier_cloud = PCA_Result.inlier_cloud;
             pclResult.plane_coefficients = PCA_Result.plane_coefficients;
+            
             if (g_visualize)
             {
                 visualizePCL(PCA_Result, visualization);
@@ -310,33 +315,32 @@ int main(int argc, char **argv)
             int landingZoneNumber = pipeline[i]["parameters"]["landingZoneNumber"].as<int>();
             int maxAttempts = pipeline[i]["parameters"]["maxAttempts"].as<int>();
             
-            std::vector<SLZDCandidatePoints> candidatePoints;
-            PCLResult result;
-            SLZDCandidatePoints finalCandidate;
-            pcl::PointXYZI seed;
-           
-            seed.x = 344.993;
-            seed.y = 629.237;
-            seed.z = 39.8683;   
-
-            // Pass by reference for efficiency
-            std::tie(result, finalCandidate) = octreeNeighborhoodPCAFilter(pclResult.inlier_cloud, radius, voxelSize, k, angleThreshold, landingZoneNumber, maxAttempts);
             
-            candidatePoints.push_back(finalCandidate);
+            PCLResult result;
+     
+        
+
+            std::vector<SLZDCandidatePoints> candidatePoints;
+            std::tie(result, candidatePoints) =kdtreeNeighborhoodPCAFilter(pclResult.inlier_cloud,
+                                            radius, voxelSize, k, angleThreshold,
+                                            landingZoneNumber, maxAttempts);
+            
+            
+            // candidatePoints.push_back(finalCandidate);
             // Add plane coeffiecient to the struct we gonaa pass to calculate roughness
             result.plane_coefficients = pclResult.plane_coefficients;
-            auto candidates = rankCandidatePatches(candidatePoints, result);
-            // auto Open3DCandidatePatches = convertSLZDCandidatePointsToOpen3D(rankedCandidatePatches);
+            auto rankedCandidates = rankCandidatePatches(candidatePoints, result);
+           
            
             pclResult.inlier_cloud = result.inlier_cloud;
             if (g_visualize)
             {
                 // visualizePCL(result, visualization);
-                visualizeRankedCandidatePatches(candidates, result);
-                // visualizeRankedCandidatePatches(rankedCandidatePatches,pclResult);
-                // visualizeOpen3DCandidatePoints(Open3DCandidatePatches);
+                visualizeRankedCandidatePatches(rankedCandidates, result);
+                
             }
-        }else if(step == "HazarMetrices"){
+        }
+        else if(step == "HazarMetrices"){
             std::string hazardMetricsName = pipeline[i]["parameters"]["hazard"].as<std::string>();
             auto hazard = rankCandidatePatchFromPCLResult(pclResult, hazardMetricsName);
         }
