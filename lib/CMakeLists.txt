@@ -109,6 +109,7 @@ target_link_libraries(test_pointcloud_preprocessing
 
 # Link libraries.
 target_link_libraries(main
+  OpenMP::OpenMP_CXX
   yaml-cpp 
   Open3D::Open3D 
   ${PCL_LIBRARIES}
@@ -124,3 +125,10 @@ target_link_libraries(main
   z                      # -lz
   pthread                # -lpthread
 )
+
+# ----------------------------------------------------------------------------
+# 7. Add OpenMP flags
+# ----------------------------------------------------------------------------
+if(OPENMP_FOUND)
+    target_compile_options(main PRIVATE ${OpenMP_CXX_FLAGS})
+endif()

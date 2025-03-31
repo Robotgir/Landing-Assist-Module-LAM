@@ -314,6 +314,7 @@ int main(int argc, char **argv)
             std::string visualization = pipeline[i]["parameters"]["visualization"].as<std::string>();
             int landingZoneNumber = pipeline[i]["parameters"]["landingZoneNumber"].as<int>();
             int maxAttempts = pipeline[i]["parameters"]["maxAttempts"].as<int>();
+            float textSize = pipeline[i]["parameters"]["visualization_textSize"].as<float>();
             
             
             PCLResult result;
@@ -321,7 +322,7 @@ int main(int argc, char **argv)
         
 
             std::vector<SLZDCandidatePoints> candidatePoints;
-            std::tie(result, candidatePoints) =octreeNeighborhoodPCAFilter(pclResult.inlier_cloud,
+            std::tie(result, candidatePoints) =octreeNeighbourhoodPCAFilterOMP(pclResult.inlier_cloud,
                                             radius, voxelSize, k, angleThreshold,
                                             landingZoneNumber, maxAttempts);
             
@@ -336,7 +337,7 @@ int main(int argc, char **argv)
             if (g_visualize)
             {
                 // visualizePCL(result, visualization);
-                visualizeRankedCandidatePatches(rankedCandidates, result);
+                visualizeRankedCandidatePatches(rankedCandidates, result,textSize);
                 
             }
         }

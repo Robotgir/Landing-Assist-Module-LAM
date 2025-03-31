@@ -39,6 +39,7 @@
 // Possibly for obstacle checking or other tasks
 #include <open3d/Open3D.h>
 #include "common.h"  // For PCLResult, loadPCLCloud, etc.
+#include <vtkCamera.h>
 
 
 //-----------------------------------------------------------------------------
@@ -119,10 +120,10 @@ inline bool isPatchCollisionFreeOctree(
 }
 
 //-----------------------------------------------------------------------------
-// octreeNeighborhoodPCAFilter: returns multiple collision-free patches
+// octreeNeighbourhoodPCAFilter: returns multiple collision-free patches
 //-----------------------------------------------------------------------------
 inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>>
-octreeNeighborhoodPCAFilter(
+octreeNeighbourhoodPCAFilter(
     const CloudInput<pcl::PointXYZI>& input,
     double initRadius,
     float voxelSize,
@@ -200,6 +201,7 @@ octreeNeighborhoodPCAFilter(
         bool foundFlat = false;
         PCLResult bestFlatPatch;
         double bestCircularity = 0.0;
+        double finalSuccessfulRadius = 0.0;
 
         // "Grow" patch
         while (true) {
@@ -245,6 +247,7 @@ octreeNeighborhoodPCAFilter(
                     bestFlatPatch = pcaResult;
                     bestCircularity = circ;
                     foundFlat = true;
+                    finalSuccessfulRadius = currentRadius;
                 }
                 currentRadius += radiusIncrement;
                 continue;
@@ -279,8 +282,11 @@ octreeNeighborhoodPCAFilter(
                 candidate.dataConfidence = calculateDataConfidencePCL(bestFlatPatch);
                 candidate.relief         = calculateReliefPCL(bestFlatPatch);
                 candidate.roughness      = calculateRoughnessPCL(bestFlatPatch);
+                // Final radius of the patch
+                candidate.patchRadius = finalSuccessfulRadius;
                 // Score
                 candidate.score = candidate.dataConfidence
+                                 + candidate.patchRadius
                                  - candidate.relief
                                  - candidate.roughness;
                 // Detected surface
@@ -328,6 +334,272 @@ octreeNeighborhoodPCAFilter(
     return std::make_tuple(finalResult, finalCandidates);
 }
 
+//------------------------------------------------------------------------------------------
+// octreeNeighbourhoodPCAFilter: returns multiple collision-free patches(OMP PARALLELIZATION)
+//------------------------------------------------------------------------------------------
+inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>> octreeNeighbourhoodPCAFilterOMP(
+    const CloudInput<pcl::PointXYZI>& input,
+    double initRadius,
+    float voxelSize,
+    int k,
+    float angleThreshold,
+    int landingZoneNumber,
+    int maxAttempts)
+{
+    srand(static_cast<unsigned int>(time(0)));
+
+    std::vector<SLZDCandidatePoints> finalCandidates;
+    std::vector<PCLResult> candidatePatches;
+
+    std::cout << "[octreeNeighbourhoodPCAFilter] Loading point cloud..." << std::endl;
+    auto cloud = loadPCLCloud<pcl::PointXYZI>(input);
+    if (!cloud || cloud->empty()) {
+        std::cerr << "[octreeNeighbourhoodPCAFilter] Error: Loaded point cloud is empty!\n";
+        return std::make_tuple(PCLResult(), finalCandidates);
+    }
+
+    double minX = std::numeric_limits<double>::max();
+    double maxX = -std::numeric_limits<double>::max();
+    double minY = std::numeric_limits<double>::max();
+    double maxY = -std::numeric_limits<double>::max();
+    double minZ = std::numeric_limits<double>::max();
+    double maxZ = -std::numeric_limits<double>::max();
+
+    for (const auto &pt : cloud->points) {
+        if (pt.x < minX) minX = pt.x;
+        if (pt.x > maxX) maxX = pt.x;
+        if (pt.y < minY) minY = pt.y;
+        if (pt.y > maxY) maxY = pt.y;
+        if (pt.z < minZ) minZ = pt.z;
+        if (pt.z > maxZ) maxZ = pt.z;
+    }
+
+    std::cout << "[octreeNeighbourhoodPCAFilter] Cloud bounding box (XYZ): "
+              << "x=[" << minX << ", " << maxX << "], "
+              << "y=[" << minY << ", " << maxY << "], "
+              << "z=[" << minZ << ", " << maxZ << "]\n";
+
+    pcl::octree::OctreePointCloudSearch<pcl::PointXYZI> octree(0.001);
+    octree.setInputCloud(cloud);
+    octree.addPointsFromInputCloud();
+
+    std::cout << "[octreeNeighbourhoodPCAFilter] initRadius=" << initRadius
+              << ", voxelSize=" << voxelSize
+              << ", k=" << k
+              << ", angleThreshold=" << angleThreshold
+              << ", landingZoneNumber=" << landingZoneNumber
+              << ", maxAttempts=" << maxAttempts << "\n\n";
+
+    bool stopParallel = false;
+    omp_lock_t stop_lock;
+    omp_init_lock(&stop_lock); // Initialize the lock
+
+    #pragma omp parallel for shared(finalCandidates, candidatePatches, cloud, \
+                                    octree, minX, maxX, minY, maxY, stopParallel, stop_lock)
+    for (int attempt = 0; attempt < maxAttempts; ++attempt)
+    {
+        if (stopParallel) {
+            continue; // Skip the current iteration if stopParallel is set
+        }
+
+        double currentRadius = initRadius;
+        double radiusIncrement = 0.5;
+        double circularityThreshold = 0.1;
+        double clearance = 10.0;
+        double margin = 0.01;
+        double step_size = 0.2;
+
+        bool foundFlat = false;
+        PCLResult bestFlatPatch;
+        double bestCircularity = 0.0;
+        double finalSuccessfulRadius = 0.0;
+
+        int randomIndex = rand() % cloud->size();
+        pcl::PointXYZI searchPoint = cloud->points[randomIndex];
+
+        #pragma omp critical
+        {
+            std::cout << "[Thread " << omp_get_thread_num()
+                      << "] --> Attempt #" << attempt
+                      << "  Seed=(" << searchPoint.x << ", "
+                      << searchPoint.y << ", "
+                      << searchPoint.z << ")\n";
+        }
+
+        if (searchPoint.x < (minX + initRadius) || searchPoint.x > (maxX - initRadius) ||
+            searchPoint.y < (minY + initRadius) || searchPoint.y > (maxY - initRadius))
+        {
+            #pragma omp critical
+            {
+                std::cout << "[Thread " << omp_get_thread_num()
+                          << "] Attempt " << attempt
+                          << ": seed near XY edge => skip.\n";
+            }
+            continue;
+        }
+
+        while (true) {
+            std::vector<int> idx;
+            std::vector<float> dist;
+            int found = octree.radiusSearch(searchPoint, currentRadius, idx, dist);
+
+            #pragma omp critical
+            {
+                std::cout << "[Thread " << omp_get_thread_num()
+                          << "] Attempt " << attempt
+                          << "  radius=" << currentRadius
+                          << " => " << found << " neighbors.\n";
+            }
+
+            if (found < 3) {
+                break;
+            }
+
+            auto patch = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
+            patch->reserve(found);
+            for (int i = 0; i < found; i++) {
+                patch->points.push_back(cloud->points[idx[i]]);
+            }
+
+            PCLResult pcaResult = PrincipleComponentAnalysis(patch, voxelSize, angleThreshold, k);
+
+            if (pcaResult.outlier_cloud->empty()) {
+                pcl::ConvexHull<pcl::PointXYZI> chull;
+                chull.setInputCloud(patch);
+                chull.setDimension(2);
+
+                auto hull = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
+                chull.reconstruct(*hull);
+
+                double area = 0.0, perimeter = 0.0;
+                if (hull->size() >= 3) {
+                    for (size_t i = 0; i < hull->size(); i++) {
+                        size_t j = (i + 1) % hull->size();
+                        double xi = hull->points[i].x, yi = hull->points[i].y;
+                        double xj = hull->points[j].x, yj = hull->points[j].y;
+                        area += (xi * yj - xj * yi);
+                        perimeter += std::hypot(xj - xi, yj - yi);
+                    }
+                    area = std::fabs(area) * 0.5;
+                }
+                double circ = (perimeter > 0)
+                              ? (4.0 * M_PI * area) / (perimeter * perimeter)
+                              : 0.0;
+
+                #pragma omp critical
+                {
+                    std::cout << "[Thread " << omp_get_thread_num()
+                              << "] Attempt " << attempt
+                              << " => FLAT, circ=" << circ << "\n";
+                }
+
+                if (circ >= circularityThreshold) {
+                    bestFlatPatch = pcaResult;
+                    bestCircularity = circ;
+                    foundFlat = true;
+                    finalSuccessfulRadius = currentRadius;
+                }
+                currentRadius += radiusIncrement;
+                continue;
+            }
+            else {
+                #pragma omp critical
+                {
+                    std::cout << "[Thread " << omp_get_thread_num()
+                              << "] Attempt " << attempt
+                              << " => NOT flat => stop.\n";
+                }
+            }
+            break;
+        }
+
+        if (foundFlat) {
+            double cx = 0, cy = 0, patchR = 0, patchMaxZ = 0;
+            computePatchData(bestFlatPatch.inlier_cloud, cx, cy, patchR, patchMaxZ);
+
+            bool collisionFree = isPatchCollisionFreeOctree(
+                cloud, octree, cx, cy, patchR, patchMaxZ,
+                margin, clearance, step_size);
+
+            if (collisionFree) {
+                SLZDCandidatePoints candidate;
+                candidate.seedPoint.x = searchPoint.x;
+                candidate.seedPoint.y = searchPoint.y;
+                candidate.seedPoint.z = searchPoint.z;
+                candidate.plane_coefficients = bestFlatPatch.plane_coefficients;
+
+                candidate.dataConfidence = calculateDataConfidencePCL(bestFlatPatch);
+                candidate.relief = calculateReliefPCL(bestFlatPatch);
+                candidate.roughness = calculateRoughnessPCL(bestFlatPatch);
+                candidate.patchRadius = finalSuccessfulRadius;
+                candidate.score = candidate.dataConfidence
+                                 + candidate.patchRadius
+                                 - candidate.relief
+                                 - candidate.roughness;
+                candidate.detectedSurface = bestFlatPatch.inlier_cloud;
+
+                #pragma omp critical
+                {
+                    finalCandidates.push_back(candidate);
+                    candidatePatches.push_back(bestFlatPatch);
+
+                    if (finalCandidates.size() >= landingZoneNumber) {
+                        stopParallel = true;  // Stop further attempts if we have enough landing zones
+                    }
+
+                    std::cout << "[Thread " << omp_get_thread_num()
+                              << "] Attempt " << attempt
+                              << " => Patch is collision-free, appended!\n";
+                }
+            }
+            else {
+                #pragma omp critical
+                {
+                    std::cout << "[Thread " << omp_get_thread_num()
+                              << "] Attempt " << attempt
+                              << " => Patch has obstacle => skip.\n";
+                }
+            }
+        }
+        else {
+            #pragma omp critical
+            {
+                std::cout << "[Thread " << omp_get_thread_num()
+                          << "] Attempt " << attempt
+                          << " => No suitable patch from this seed.\n";
+            }
+        }
+
+        currentRadius = initRadius;
+    }
+
+    std::cout << "\n[octreeNeighbourhoodPCAFilter] Finished parallel loop.\n"
+              << "  Found " << finalCandidates.size() << " patches.\n";
+
+    PCLResult finalResult;
+    finalResult.inlier_cloud.reset(new pcl::PointCloud<pcl::PointXYZI>());
+    finalResult.outlier_cloud.reset(new pcl::PointCloud<pcl::PointXYZI>());
+    finalResult.downsampled_cloud = cloud;
+
+    for (auto &patch : candidatePatches) {
+        finalResult.inlier_cloud->insert(finalResult.inlier_cloud->end(),
+                                         patch.inlier_cloud->begin(),
+                                         patch.inlier_cloud->end());
+    }
+
+    for (size_t i = 0; i < cloud->size(); i++) {
+        finalResult.outlier_cloud->push_back(cloud->points[i]);
+    }
+
+    std::cout << "[octreeNeighbourhoodPCAFilter] FINAL:\n"
+              << "   Inlier cloud = " << finalResult.inlier_cloud->size() << " pts\n"
+              << "   Outlier cloud= " << finalResult.outlier_cloud->size() << " pts\n\n";
+
+    // Cleanup the lock
+    omp_destroy_lock(&stop_lock);
+
+    return std::make_tuple(finalResult, finalCandidates);
+}
 //-----------------------------------------------------------------------------
 // isPatchCollisionFreekdtree: checks if there's an obstacle above the patch
 //-----------------------------------------------------------------------------
@@ -384,10 +656,10 @@ inline bool isPatchCollisionFreeKdtree(
     return true;
 }
 //-----------------------------------------------------------------------------
-// kdtreeNeighborhoodPCAFilter: returns multiple collision-free patches
+// kdtreeNeighbourhoodPCAFilter: returns multiple collision-free patches
 //-----------------------------------------------------------------------------
 inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>>
-kdtreeNeighborhoodPCAFilter(
+kdtreeNeighbourhoodPCAFilter(
     const CloudInput<pcl::PointXYZI>& input,
     double initRadius,
     float voxelSize,
@@ -546,14 +818,16 @@ kdtreeNeighborhoodPCAFilter(
                 candidate.dataConfidence = calculateDataConfidencePCL(bestFlatPatch);
                 candidate.relief         = calculateReliefPCL(bestFlatPatch);
                 candidate.roughness      = calculateRoughnessPCL(bestFlatPatch);
+                // Final radius of the patch
+                candidate.patchRadius = finalSuccessfulRadius;
                 // Score
                 candidate.score = candidate.dataConfidence
+                                 + candidate.patchRadius
                                  - candidate.relief
                                  - candidate.roughness;
                 // Detected surface
                 candidate.detectedSurface = bestFlatPatch.inlier_cloud;
-                // Final radius of the patch
-                candidate.patchRadius = finalSuccessfulRadius;
+
                 // Save this candidate in our vector
                 finalCandidates.push_back(candidate);
 
@@ -595,6 +869,274 @@ kdtreeNeighborhoodPCAFilter(
     // Return a tuple: (finalResult, vectorOfCandidates)
     return std::make_tuple(finalResult, finalCandidates);
 }
+//----------------------------------------------------------------------------------------
+// kdtreeNeighbourhoodPCAFilter: returns multiple collision-free patches(OMP PARELLIZATION)
+//----------------------------------------------------------------------------------------
+inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>> kdtreeNeighbourhoodPCAFilterOMP(
+    const CloudInput<pcl::PointXYZI>& input,
+    double initRadius,
+    float voxelSize,
+    int k,
+    float angleThreshold,
+    int landingZoneNumber,
+    int maxAttempts)
+{
+    srand(static_cast<unsigned int>(time(0)));
+
+    std::vector<SLZDCandidatePoints> finalCandidates;
+    std::vector<PCLResult> candidatePatches;
+
+    std::cout << "[octreeNeighbourhoodPCAFilter] Loading point cloud..." << std::endl;
+    auto cloud = loadPCLCloud<pcl::PointXYZI>(input);
+    if (!cloud || cloud->empty()) {
+        std::cerr << "[octreeNeighbourhoodPCAFilter] Error: Loaded point cloud is empty!\n";
+        return std::make_tuple(PCLResult(), finalCandidates);
+    }
+
+    double minX = std::numeric_limits<double>::max();
+    double maxX = -std::numeric_limits<double>::max();
+    double minY = std::numeric_limits<double>::max();
+    double maxY = -std::numeric_limits<double>::max();
+    double minZ = std::numeric_limits<double>::max();
+    double maxZ = -std::numeric_limits<double>::max();
+
+    for (const auto &pt : cloud->points) {
+        if (pt.x < minX) minX = pt.x;
+        if (pt.x > maxX) maxX = pt.x;
+        if (pt.y < minY) minY = pt.y;
+        if (pt.y > maxY) maxY = pt.y;
+        if (pt.z < minZ) minZ = pt.z;
+        if (pt.z > maxZ) maxZ = pt.z;
+    }
+
+    std::cout << "[octreeNeighbourhoodPCAFilter] Cloud bounding box (XYZ): "
+              << "x=[" << minX << ", " << maxX << "], "
+              << "y=[" << minY << ", " << maxY << "], "
+              << "z=[" << minZ << ", " << maxZ << "]\n";
+
+
+    // Build an octree
+    pcl::KdTreeFLANN<PointT> kdtree;
+    kdtree.setInputCloud(cloud);
+
+
+    std::cout << "[octreeNeighbourhoodPCAFilter] initRadius=" << initRadius
+              << ", voxelSize=" << voxelSize
+              << ", k=" << k
+              << ", angleThreshold=" << angleThreshold
+              << ", landingZoneNumber=" << landingZoneNumber
+              << ", maxAttempts=" << maxAttempts << "\n\n";
+
+    bool stopParallel = false;
+    omp_lock_t stop_lock;
+    omp_init_lock(&stop_lock); // Initialize the lock
+
+    #pragma omp parallel for shared(finalCandidates, candidatePatches, cloud, \
+                                    kdtree, minX, maxX, minY, maxY, stopParallel, stop_lock)
+    for (int attempt = 0; attempt < maxAttempts; ++attempt)
+    {
+        if (stopParallel) {
+            continue; // Skip the current iteration if stopParallel is set
+        }
+
+        double currentRadius = initRadius;
+        double radiusIncrement = 0.5;
+        double circularityThreshold = 0.1;
+        double clearance = 10.0;
+        double margin = 0.01;
+        double step_size = 0.2;
+
+        bool foundFlat = false;
+        PCLResult bestFlatPatch;
+        double bestCircularity = 0.0;
+        double finalSuccessfulRadius = 0.0;
+
+        int randomIndex = rand() % cloud->size();
+        pcl::PointXYZI searchPoint = cloud->points[randomIndex];
+
+        #pragma omp critical
+        {
+            std::cout << "[Thread " << omp_get_thread_num()
+                      << "] --> Attempt #" << attempt
+                      << "  Seed=(" << searchPoint.x << ", "
+                      << searchPoint.y << ", "
+                      << searchPoint.z << ")\n";
+        }
+
+        if (searchPoint.x < (minX + initRadius) || searchPoint.x > (maxX - initRadius) ||
+            searchPoint.y < (minY + initRadius) || searchPoint.y > (maxY - initRadius))
+        {
+            #pragma omp critical
+            {
+                std::cout << "[Thread " << omp_get_thread_num()
+                          << "] Attempt " << attempt
+                          << ": seed near XY edge => skip.\n";
+            }
+            continue;
+        }
+
+        while (true) {
+            std::vector<int> idx;
+            std::vector<float> dist;
+            int found = kdtree.radiusSearch(searchPoint, currentRadius, idx, dist);
+
+            #pragma omp critical
+            {
+                std::cout << "[Thread " << omp_get_thread_num()
+                          << "] Attempt " << attempt
+                          << "  radius=" << currentRadius
+                          << " => " << found << " neighbors.\n";
+            }
+
+            if (found < 3) {
+                break;
+            }
+
+            auto patch = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
+            patch->reserve(found);
+            for (int i = 0; i < found; i++) {
+                patch->points.push_back(cloud->points[idx[i]]);
+            }
+
+            PCLResult pcaResult = PrincipleComponentAnalysis(patch, voxelSize, angleThreshold, k);
+
+            if (pcaResult.outlier_cloud->empty()) {
+                pcl::ConvexHull<pcl::PointXYZI> chull;
+                chull.setInputCloud(patch);
+                chull.setDimension(2);
+
+                auto hull = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
+                chull.reconstruct(*hull);
+
+                double area = 0.0, perimeter = 0.0;
+                if (hull->size() >= 3) {
+                    for (size_t i = 0; i < hull->size(); i++) {
+                        size_t j = (i + 1) % hull->size();
+                        double xi = hull->points[i].x, yi = hull->points[i].y;
+                        double xj = hull->points[j].x, yj = hull->points[j].y;
+                        area += (xi * yj - xj * yi);
+                        perimeter += std::hypot(xj - xi, yj - yi);
+                    }
+                    area = std::fabs(area) * 0.5;
+                }
+                double circ = (perimeter > 0)
+                              ? (4.0 * M_PI * area) / (perimeter * perimeter)
+                              : 0.0;
+
+                #pragma omp critical
+                {
+                    std::cout << "[Thread " << omp_get_thread_num()
+                              << "] Attempt " << attempt
+                              << " => FLAT, circ=" << circ << "\n";
+                }
+
+                if (circ >= circularityThreshold) {
+                    bestFlatPatch = pcaResult;
+                    bestCircularity = circ;
+                    foundFlat = true;
+                    finalSuccessfulRadius = currentRadius;
+                }
+                currentRadius += radiusIncrement;
+                continue;
+            }
+            else {
+                #pragma omp critical
+                {
+                    std::cout << "[Thread " << omp_get_thread_num()
+                              << "] Attempt " << attempt
+                              << " => NOT flat => stop.\n";
+                }
+            }
+            break;
+        }
+
+        if (foundFlat) {
+            double cx = 0, cy = 0, patchR = 0, patchMaxZ = 0;
+            computePatchData(bestFlatPatch.inlier_cloud, cx, cy, patchR, patchMaxZ);
+
+            bool collisionFree = isPatchCollisionFreeKdtree(
+                cloud, kdtree, cx, cy, patchR, patchMaxZ,
+                margin, clearance, step_size);
+
+            if (collisionFree) {
+                SLZDCandidatePoints candidate;
+                candidate.seedPoint.x = searchPoint.x;
+                candidate.seedPoint.y = searchPoint.y;
+                candidate.seedPoint.z = searchPoint.z;
+                candidate.plane_coefficients = bestFlatPatch.plane_coefficients;
+
+                candidate.dataConfidence = calculateDataConfidencePCL(bestFlatPatch);
+                candidate.relief = calculateReliefPCL(bestFlatPatch);
+                candidate.roughness = calculateRoughnessPCL(bestFlatPatch);
+                candidate.patchRadius = finalSuccessfulRadius;
+                candidate.score = candidate.dataConfidence
+                                 + candidate.patchRadius
+                                 - candidate.relief
+                                 - candidate.roughness;
+                candidate.detectedSurface = bestFlatPatch.inlier_cloud;
+
+                #pragma omp critical
+                {
+                    finalCandidates.push_back(candidate);
+                    candidatePatches.push_back(bestFlatPatch);
+
+                    if (finalCandidates.size() >= landingZoneNumber) {
+                        stopParallel = true;  // Stop further attempts if we have enough landing zones
+                    }
+
+                    std::cout << "[Thread " << omp_get_thread_num()
+                              << "] Attempt " << attempt
+                              << " => Patch is collision-free, appended!\n";
+                }
+            }
+            else {
+                #pragma omp critical
+                {
+                    std::cout << "[Thread " << omp_get_thread_num()
+                              << "] Attempt " << attempt
+                              << " => Patch has obstacle => skip.\n";
+                }
+            }
+        }
+        else {
+            #pragma omp critical
+            {
+                std::cout << "[Thread " << omp_get_thread_num()
+                          << "] Attempt " << attempt
+                          << " => No suitable patch from this seed.\n";
+            }
+        }
+
+        currentRadius = initRadius;
+    }
+
+    std::cout << "\n[octreeNeighbourhoodPCAFilter] Finished parallel loop.\n"
+              << "  Found " << finalCandidates.size() << " patches.\n";
+
+    PCLResult finalResult;
+    finalResult.inlier_cloud.reset(new pcl::PointCloud<pcl::PointXYZI>());
+    finalResult.outlier_cloud.reset(new pcl::PointCloud<pcl::PointXYZI>());
+    finalResult.downsampled_cloud = cloud;
+
+    for (auto &patch : candidatePatches) {
+        finalResult.inlier_cloud->insert(finalResult.inlier_cloud->end(),
+                                         patch.inlier_cloud->begin(),
+                                         patch.inlier_cloud->end());
+    }
+
+    for (size_t i = 0; i < cloud->size(); i++) {
+        finalResult.outlier_cloud->push_back(cloud->points[i]);
+    }
+
+    std::cout << "[octreeNeighbourhoodPCAFilter] FINAL:\n"
+              << "   Inlier cloud = " << finalResult.inlier_cloud->size() << " pts\n"
+              << "   Outlier cloud= " << finalResult.outlier_cloud->size() << " pts\n\n";
+
+    // Cleanup the lock
+    omp_destroy_lock(&stop_lock);
+
+    return std::make_tuple(finalResult, finalCandidates);
+}
 //-----------------------------------------------------------------------------
 // rankCandidatePatches: sorts all your collected patches by descending score
 //-----------------------------------------------------------------------------
@@ -625,13 +1167,18 @@ inline std::vector<SLZDCandidatePoints> rankCandidatePatches(
 //-----------------------------------------------------------------------------
 // visualizeRankedCandidatePatches: displays a rank label for each patch
 //-----------------------------------------------------------------------------
+
 inline void visualizeRankedCandidatePatches(const std::vector<SLZDCandidatePoints>& candidatePoints, 
-                                            const PCLResult &result)
+    const PCLResult &result,float textSize)
 {
     pcl::visualization::PCLVisualizer::Ptr viewer(
         new pcl::visualization::PCLVisualizer(result.pcl_method + " PCL RESULT"));
     viewer->setBackgroundColor(1.0, 1.0, 1.0);
 
+    // Fixed color for visualization
+    pcl::RGB fixedColor = {255, 0, 0};  // Red color
+
+    // Visualize outliers if available
     if (result.outlier_cloud && !result.outlier_cloud->empty()) {
         pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZI> outlierColorHandler(
             result.outlier_cloud, 255, 0, 0);
@@ -639,6 +1186,8 @@ inline void visualizeRankedCandidatePatches(const std::vector<SLZDCandidatePoint
         viewer->setPointCloudRenderingProperties(
             pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "outlier_cloud");
     }
+
+    // Visualize inliers if available
     if (result.inlier_cloud && !result.inlier_cloud->empty()) {
         pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZI> inlierColorHandler(
             result.inlier_cloud, 0, 255, 0);
@@ -648,26 +1197,71 @@ inline void visualizeRankedCandidatePatches(const std::vector<SLZDCandidatePoint
     }
 
     std::cout << "Candidate patches size: " << candidatePoints.size() << std::endl;
+
+    // Prepare data in a thread-safe way
+    std::vector<std::tuple<int, pcl::PointXYZ, pcl::PointCloud<pcl::PointXYZI>::Ptr, float>> patchData;
+
+    // Parallelize the data processing part (calculating data for each patch)
+    #pragma omp parallel for default(none) shared(candidatePoints, patchData)
     for (size_t idx = 0; idx < candidatePoints.size(); ++idx) {
         const auto &candidate = candidatePoints[idx];
 
-        // Add patch surface
-        std::stringstream ss;
-        ss << "candidate_" << idx << "_surface";
-        viewer->addPointCloud<pcl::PointXYZI>(candidate.detectedSurface, ss.str());
-
-        // Use seedPoint as the center for the rank label
+        // Calculate the center point of the patch (seedPoint)
         pcl::PointXYZ centerXYZ;
         centerXYZ.x = candidate.seedPoint.x;
         centerXYZ.y = candidate.seedPoint.y;
         centerXYZ.z = candidate.seedPoint.z;
 
-        // Label as "Rank i+1"
+        // Store the required data for visualization
+        #pragma omp critical
+        patchData.push_back(std::make_tuple(idx, centerXYZ, candidate.detectedSurface, candidate.patchRadius));
+    }
+
+    // Now visualize the patches
+    for (const auto &data : patchData) {
+        int idx;
+        pcl::PointXYZ centerXYZ;
+        pcl::PointCloud<pcl::PointXYZI>::Ptr detectedSurface;
+        float radius;
+
+        std::tie(idx, centerXYZ, detectedSurface, radius) = data;
+
+        // Visualize the patch surface (points of the patch)
+        std::stringstream ss;
+        ss << "candidate_" << idx << "_surface";
+        viewer->addPointCloud<pcl::PointXYZI>(detectedSurface, ss.str());
+
+        // Add center point as a sphere with the fixed color
+        std::stringstream centerName;
+        centerName << "center_" << idx;
+        viewer->addSphere(centerXYZ, 500.1, fixedColor.r, fixedColor.g, fixedColor.b, centerName.str());
+
+        // Label as "Rank i+1" with the same color as the center point
         std::stringstream label;
         label << "Rank " << idx + 1;
+        viewer->addText3D(label.str(), centerXYZ, textSize, fixedColor.r, fixedColor.g, fixedColor.b, "label_" + std::to_string(idx));
 
-        viewer->addText3D<pcl::PointXYZ>(
-            label.str(), centerXYZ, 2.0, 0.0, 0.0, 0.0, "label_" + std::to_string(idx));
+        // Generate and visualize the boundary (circumference of the patch)
+        int num_points = 10000; // Number of points to form the circle
+        pcl::PointCloud<pcl::PointXYZ>::Ptr circle(new pcl::PointCloud<pcl::PointXYZ>);
+
+        // Generate points for the circumference of the circle
+        for (int i = 0; i < num_points; ++i) {
+            // Calculate points on the circumference of the circle
+            float angle = 2 * M_PI * i / num_points;
+            pcl::PointXYZ pt;
+            pt.x = centerXYZ.x + radius * cos(angle);
+            pt.y = centerXYZ.y + radius * sin(angle);
+            pt.z = centerXYZ.z;
+
+            circle->points.push_back(pt);
+        }
+
+        // Visualize the boundary (circle) with the fixed color
+        std::stringstream circleName;
+        circleName << "circle_" << idx;
+        pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> circleColorHandler(circle, fixedColor.r * 255, fixedColor.g * 255, fixedColor.b * 255);
+        viewer->addPointCloud<pcl::PointXYZ>(circle, circleColorHandler, circleName.str());
     }
 
     viewer->resetCamera();
@@ -676,5 +1270,7 @@ inline void visualizeRankedCandidatePatches(const std::vector<SLZDCandidatePoint
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 }
+
+
 
 #endif
