@@ -1,6 +1,3 @@
-Here's a **standardized and easier-to-read version** of your README file:
-
----
 
 # 📌 3D Point Cloud Processing and Visualization
 
@@ -61,6 +58,12 @@ Download from:
 📎 [Google Drive](https://drive.google.com/file/d/1gQqce4ZqsO59hb1R1lowTViAK7js4DPa/view?usp=sharing)
 
 ---
+
+## Docker
+https://hub.docker.com/r/athulkrishnavpkdlr/pcslzd
+
+Instruction on how to use this docker is documented in docker hub page
+
 
 ## ⚙️ Installation
 
@@ -227,4 +230,4 @@ Example YAML entry:
 - [OctoMap](https://octomap.github.io/)
 - [RANSAC in Open3D](https://github.com/isl-org/Open3D/blob/main/examples/cpp/RegistrationRANSAC.cpp)
 
----
+
