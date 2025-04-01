@@ -89,4 +89,9 @@ ros__parameters:
         angleThreshold: 30
         k: 20
         visualization: "both"
+    - step: "HazarMetrices"
+      enabled: true
+      parameters:
+        hazard: "ALL"  #ALL for calculing whole hazard metrices, 
+                       #DATA_CONFIDENCE ,only caluculates data confidence individually
   

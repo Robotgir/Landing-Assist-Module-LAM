@@ -32,10 +32,14 @@
 #include <pcl/filters/statistical_outlier_removal.h>
 
 using PointT = pcl::PointXYZI;
+using PointCloudT = pcl::PointCloud<PointT>;
 
 template <typename PointT>
 using CloudInput = std::variant<std::string, typename pcl::PointCloud<PointT>::Ptr>;
 
+using Open3DCloudInput = std::variant<std::string, std::shared_ptr<open3d::geometry::PointCloud>>;
+ 
+ 
 //======================================== DATA STRUCTURING GRID BASED ==================================================
 
 // Struct to hold both PointCloud and VoxelGrid
@@ -45,7 +49,8 @@ struct VoxelGridResult {
 };
 
 // // Function to load point cloud and create voxel grid
-inline VoxelGridResult create_3d_grid(const std::string& filePath, double voxel_size) {
+inline VoxelGridResult create_3d_grid(const std::string& filePath, double voxel_size) 
+{
     VoxelGridResult result;
 
     // 1. Load the Point Cloud
@@ -98,7 +103,8 @@ inline void Visualize3dGridMap(const std::shared_ptr<open3d::geometry::Geometry>
 
 
 // Function to create a 2D grid map using the GridMinimum filter.
-inline pcl::PointCloud<PointT>::Ptr create2DGridMap(const CloudInput<PointT>& input, float resolution) {
+inline pcl::PointCloud<PointT>::Ptr create2DGridMap(const CloudInput<PointT>& input, float resolution) 
+{
     // Load input point cloud
     auto input_cloud = loadPCLCloud<PointT>(input);
 
@@ -120,7 +126,8 @@ inline pcl::PointCloud<PointT>::Ptr create2DGridMap(const CloudInput<PointT>& in
 
 // Function to visualize a 2D grid map (represented as a point cloud)
 // using the PCLVisualizer.
-inline void visualize2DGridMap(pcl::PointCloud<PointT>::Ptr cloud) {
+inline void visualize2DGridMap(pcl::PointCloud<PointT>::Ptr cloud) 
+{
     if (!cloud || cloud->empty()) {
         std::cerr << "ERROR: Cannot visualize an empty grid map." << std::endl;
         return;
@@ -190,7 +197,8 @@ struct KDTreeResult {
 
 // Function to load point cloud, build KDTree
 
-inline KDTreeResult create_kdtree(const std::string& filePath, float K) {
+inline KDTreeResult create_kdtree(const std::string& filePath, float K) 
+{
     KDTreeResult result;
 
     // 1. Load the Point Cloud
@@ -219,7 +227,8 @@ struct OctreeResult {
 };
 
 // Function to load point cloud, build KDTree
-inline OctreeResult create_octree(const std::string& filePath, int max_depth) {
+inline OctreeResult create_octree(const std::string& filePath, int max_depth) 
+{
     OctreeResult result;
 
     // 1. Load the Point Cloud
@@ -269,7 +278,8 @@ inline std::shared_ptr<open3d::geometry::PointCloud> apply_voxel_grid_filter(
 inline void VisualizeGeometry(const std::shared_ptr<const open3d::geometry::Geometry>& geometry,
                        const std::string& window_title = "Downsampled Voxel Grid (Voxel grid filter )",
                        int width = 1600,
-                       int height = 900) {
+                       int height = 900) 
+{
     // Create a vector to hold the geometry pointers
     std::vector<std::shared_ptr<const open3d::geometry::Geometry>> geometries;
     geometries.push_back(geometry);
@@ -330,28 +340,22 @@ PCLResult applySORFilterPCL(const std::string &pcd_file, int meanK = 50, double 
 //=============================== FILTERING OUTLIER REMOVAL ===============================================
 
 inline OPEN3DResult apply_sor_filter(
-    const std::string& filePath,
+    const Open3DCloudInput &input,
     int nb_neighbors,
     double std_ratio)
 {
     OPEN3DResult result;
     result.open3d_method = "StatisticalOutlierRemoval";
 
-    // Load the original point cloud
-    auto original_cloud = std::make_shared<open3d::geometry::PointCloud>();
-    if (!open3d::io::ReadPointCloud(filePath, *original_cloud)) {
-        std::cerr << "Failed to read point cloud: " << filePath << std::endl;
-        return result;
-    }
-    std::cout << "Loaded point cloud with " << original_cloud->points_.size() << " points." << std::endl;
 
+    auto cloud= loadOpen3DCloud(input);
     // Apply SOR filter: RemoveStatisticalOutliers returns a pair: (filtered_cloud, inlier_indices)
     // Here, filtered_cloud contains the inliers (i.e. noise removed) and inlier_indices are their indices.
-    auto [filtered_cloud, inlier_indices] = original_cloud->RemoveStatisticalOutliers(nb_neighbors, std_ratio);
+    auto [filtered_cloud, inlier_indices] = cloud->RemoveStatisticalOutliers(nb_neighbors, std_ratio);
 
     // Instead of manually computing the complement, we can use the invert flag in SelectByIndex.
     // In this case, the noise (outliers) are the complement of the inlier indices.
-    auto noise_cloud = original_cloud->SelectByIndex(inlier_indices, true);
+    auto noise_cloud = cloud->SelectByIndex(inlier_indices, true);
 
     // Swap the assignment so that:
     //   - result.inlier_cloud holds the noise (points removed by filtering)
@@ -370,8 +374,7 @@ inline OPEN3DResult apply_sor_filter(
 // https://github.com/isl-org/Open3D/blob/main/cpp/open3d/geometry/PointCloud.cpp#L602
 
 inline PCLResult applyRadiusFilter(
-    const std::string& file_path,
-    double voxel_size=0.45,
+    const CloudInput<PointT>& input,
     double radius_search=0.9,
     int min_neighbors=40)
 {
@@ -382,21 +385,11 @@ inline PCLResult applyRadiusFilter(
     result.outlier_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
     result.downsampled_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
 
-    // Load the original point cloud from file.
-    typename pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
-    if (pcl::io::loadPCDFile<PointT>(file_path, *cloud) == -1) {
-        std::cerr << "[ERROR] Failed to load original PCD file: " << file_path << std::endl;
-        return result;  // Return with empty clouds on error.
-    }
-    std::cout << "[INFO] Loaded " << cloud->size() 
-              << " points from " << file_path << std::endl;
-
-    // Downsample the cloud using a voxel grid filter.
-    // Assume that downsamplePointCloudPCL is a helper function defined elsewhere.
-    // typename pcl::PointCloud<PointT>::Ptr cloud_downsampled(new pcl::PointCloud<PointT>());
-    downsamplePointCloudPCL<PointT>(cloud, result.downsampled_cloud, voxel_size);
-    
-
+ 
+    auto cloud = loadPCLCloud<PointT>(input);
+    result.downsampled_cloud = cloud;
+    std::cout << "[INFO] Loaded " << result.downsampled_cloud->size();
+              
     // Set up the Radius Outlier Removal filter.
     pcl::RadiusOutlierRemoval<PointT> ror;
     ror.setInputCloud(result.downsampled_cloud);
@@ -431,8 +424,7 @@ inline PCLResult applyRadiusFilter(
 // Function to apply Bilateral Filter
 
 inline PCLResult applyBilateralFilter(
-    const std::string& file_path,
-    double voxel_size,
+    const CloudInput<PointT>& input,
     double sigma_s,
     double sigma_r)
 {
@@ -442,24 +434,19 @@ inline PCLResult applyBilateralFilter(
     result.outlier_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
     result.downsampled_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
     
-    // Load the original point cloud from file.
-    typename pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
-    if (pcl::io::loadPCDFile<PointT>(file_path, *cloud) == -1) {
-        std::cerr << "[ERROR] Failed to load original PCD file: " << file_path << std::endl;
-        return result;  // Return with empty clouds on error.
-    }
-    std::cout << "[INFO] Loaded " << cloud->size() 
-              << " points from " << file_path << std::endl;
+  
+    auto cloud= loadPCLCloud<PointT>(input);
+    result.downsampled_cloud = cloud;
+    std::cout << "[INFO] Loaded " << cloud->size();
+            
 
-    downsamplePointCloudPCL<PointT>(cloud, result.downsampled_cloud, voxel_size);
 
     // Initialize the bilateral filter
     pcl::BilateralFilter<PointT> bilateral_filter;
 
-    
-    
+
     // Set the input cloud
-    bilateral_filter.setInputCloud(cloud);
+    bilateral_filter.setInputCloud(result.downsampled_cloud);
     
     // Set filter parameters
     bilateral_filter.setHalfSize(sigma_s);

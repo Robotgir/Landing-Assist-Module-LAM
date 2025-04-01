@@ -10,7 +10,7 @@ ros__parameters:
   # Define the pipeline of processing steps.
   pipeline:
     - step: "SOR"
-      enabled: false
+      enabled: true
       parameters:
         nb_neighbors: 20
         std_ratio: 2.0
@@ -18,14 +18,12 @@ ros__parameters:
     - step: "Radial"
       enabled: false
       parameters:
-        voxel_size: 0.05
         radius_search: 0.9
         min_neighbors: 50
         visualization: "both"
     - step: "Bilateral"
       enabled: false
       parameters:
-        voxel_size: 0.05
         sigma_s: 15
         sigma_r: 0.3
         visualization: "both"
@@ -36,11 +34,10 @@ ros__parameters:
     - step: "SphericalNeighbourhood"
       enabled: true
       parameters:
-        radius: 7.1 #1.1
-        voxelSize: 0.1
+        radius: 6.1 #1.1
         angleThreshold: 10.0 #15.0
         k: 15 #150
-        landingZoneNumber: 5
+        landingZoneNumber: 50
         maxAttempts: 100000 #100
         visualization: "both"
         visualization_textSize: 0.8 #0.08

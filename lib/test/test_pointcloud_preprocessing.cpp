@@ -151,10 +151,9 @@ TEST(PCLFiltering, applySORFilterPCL) {
 
 TEST(PCLFiltering, ApplyRadiusFilter) {
     // Load original cloud.
-    double voxel_size=0.05;
     double radius_search = 0.9; //0.1 to 0.3,0.3 to 0.7,0.7 to 0.15
     int min_neighbors = 50;      // 5 to 15,10 to 30,20 to 50
-    PCLResult result = applyRadiusFilter(filePath, voxel_size, radius_search, min_neighbors);
+    PCLResult result = applyRadiusFilter(filePath, radius_search, min_neighbors);
     
     if (!g_skipVisualization) {
         // Visualize the segmentation result; press 'q' to close the window.
@@ -167,11 +166,11 @@ TEST(PCLFiltering, ApplyRadiusFilter) {
 
 TEST(PCLFiltering, ApplyBilateralFilter) {
 
-    double voxelSize = 0.45;   
+       
     double sigma_s = 15.0; // Small point clouds or detailed structures: sigma_s = 1.0 - 5.0 ,Noisy or dense point clouds: sigma_s = 5.0 - 10.0,Large or very noisy point clouds: sigma_s = 10.0 - 15.0
     double sigma_r = 0.3;  //Preserve edges and details: sigma_r = 0.05 - 0.1, Moderate smoothing: sigma_r = 0.1 - 0.2, Heavy denoising (risk of over-smoothing): sigma_r = 0.2 - 0.3
 
-    PCLResult result = applyBilateralFilter(filePath, voxelSize, sigma_s, sigma_r);
+    PCLResult result = applyBilateralFilter(filePath, sigma_s, sigma_r);
 
     
     if (!g_skipVisualization) {

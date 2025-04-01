@@ -126,7 +126,6 @@ inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>>
 octreeNeighbourhoodPCAFilter(
     const CloudInput<pcl::PointXYZI>& input,
     double initRadius,
-    float voxelSize,
     int k,
     float angleThreshold,
     int landingZoneNumber,
@@ -219,7 +218,7 @@ octreeNeighbourhoodPCAFilter(
             }
 
             // Apply your PCA-based flattening check
-            PCLResult pcaResult = PrincipleComponentAnalysis(patch, voxelSize, angleThreshold, k);
+            PCLResult pcaResult = PrincipleComponentAnalysis(patch, angleThreshold, k);
 
             if (pcaResult.outlier_cloud->empty()) {
                 // Patch is flat.  Check circularity
@@ -340,7 +339,6 @@ octreeNeighbourhoodPCAFilter(
 inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>> octreeNeighbourhoodPCAFilterOMP(
     const CloudInput<pcl::PointXYZI>& input,
     double initRadius,
-    float voxelSize,
     int k,
     float angleThreshold,
     int landingZoneNumber,
@@ -384,7 +382,6 @@ inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>> octreeNeighbourho
     octree.addPointsFromInputCloud();
 
     std::cout << "[octreeNeighbourhoodPCAFilter] initRadius=" << initRadius
-              << ", voxelSize=" << voxelSize
               << ", k=" << k
               << ", angleThreshold=" << angleThreshold
               << ", landingZoneNumber=" << landingZoneNumber
@@ -461,7 +458,7 @@ inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>> octreeNeighbourho
                 patch->points.push_back(cloud->points[idx[i]]);
             }
 
-            PCLResult pcaResult = PrincipleComponentAnalysis(patch, voxelSize, angleThreshold, k);
+            PCLResult pcaResult = PrincipleComponentAnalysis(patch, angleThreshold, k);
 
             if (pcaResult.outlier_cloud->empty()) {
                 pcl::ConvexHull<pcl::PointXYZI> chull;
@@ -662,7 +659,6 @@ inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>>
 kdtreeNeighbourhoodPCAFilter(
     const CloudInput<pcl::PointXYZI>& input,
     double initRadius,
-    float voxelSize,
     int k,
     float angleThreshold,
     int landingZoneNumber,
@@ -755,7 +751,7 @@ kdtreeNeighbourhoodPCAFilter(
             }
 
             // Apply your PCA-based flattening check
-            PCLResult pcaResult = PrincipleComponentAnalysis(patch, voxelSize, angleThreshold, k);
+            PCLResult pcaResult = PrincipleComponentAnalysis(patch, angleThreshold, k);
 
             if (pcaResult.outlier_cloud->empty()) {
                 // Patch is flat.  Check circularity
@@ -875,7 +871,6 @@ kdtreeNeighbourhoodPCAFilter(
 inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>> kdtreeNeighbourhoodPCAFilterOMP(
     const CloudInput<pcl::PointXYZI>& input,
     double initRadius,
-    float voxelSize,
     int k,
     float angleThreshold,
     int landingZoneNumber,
@@ -921,7 +916,6 @@ inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>> kdtreeNeighbourho
 
 
     std::cout << "[octreeNeighbourhoodPCAFilter] initRadius=" << initRadius
-              << ", voxelSize=" << voxelSize
               << ", k=" << k
               << ", angleThreshold=" << angleThreshold
               << ", landingZoneNumber=" << landingZoneNumber
@@ -998,7 +992,7 @@ inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>> kdtreeNeighbourho
                 patch->points.push_back(cloud->points[idx[i]]);
             }
 
-            PCLResult pcaResult = PrincipleComponentAnalysis(patch, voxelSize, angleThreshold, k);
+            PCLResult pcaResult = PrincipleComponentAnalysis(patch, angleThreshold, k);
 
             if (pcaResult.outlier_cloud->empty()) {
                 pcl::ConvexHull<pcl::PointXYZI> chull;
