@@ -80,13 +80,6 @@ mkdir build && cd build
 sudo cmake ..
 sudo make -j
 ```
-
-3. **Run the main executable:**
-
-```bash
-./main
-```
-
 ---
 
 ## ▶️ Usage
@@ -193,6 +186,13 @@ Available YAML files:
     ```
 - `pipeline3.yaml` – Custom region growing (incomplete)
 
+
+3. **Run the main executable:**
+
+```bash
+./main
+```
+This will run the main executable with the yaml specified in the code,change line 17 in main file to the specified yaml file 
 ---
 
 ## 🏁 Candidate Ranking from PCL Result
