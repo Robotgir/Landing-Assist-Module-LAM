@@ -1,0 +1,29 @@
+parameters:
+  #set pcd path
+  pcd_file_path: "/home/airsim_user/Landing-Assist-Module-LAM/pcds/test.pcd"
+  
+  #vizualization
+  visualize: true #visualization for individual function
+  final_visualize: true #visualizing final result
+  viz_inlier_or_outlier_or_both: "outlier_cloud" # can choose both ,inlier_cloud,outlier_cloud to visualize
+  
+  # downsampling
+  voxel_downsample_pointcloud: true
+  voxel_size: 1.5 #0.25
+
+  # Define the pipeline.
+  pipeline:
+    - step: "Radial"
+      enabled: false
+      library: "PCL"  # Options: "PCL" or "Open3D"
+      parameters:
+        radius_search: 1.5
+        min_neighbors: 1
+        visualization: "both"
+    - step: "SOR"
+      enabled: true
+      library: "PCL"  # Options: "PCL" or "Open3D"
+      parameters:
+        nb_neighbors: 20
+        std_ratio: 2.0
+        visualization: "both"

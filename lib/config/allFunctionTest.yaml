@@ -11,6 +11,7 @@ ros__parameters:
   pipeline:
     - step: "SOR"
       enabled: true
+      library: "PCL"  # Options: "PCL" or "Open3D"
       parameters:
         nb_neighbors: 15
         std_ratio: 0.3

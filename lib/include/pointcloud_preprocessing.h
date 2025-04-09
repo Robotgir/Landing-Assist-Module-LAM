@@ -375,8 +375,8 @@ inline OPEN3DResult apply_sor_filter(
 
 inline PCLResult applyRadiusFilter(
     const CloudInput<PointT>& input,
-    double radius_search=0.9,
-    int min_neighbors=40)
+    double radius_search,
+    int min_neighbors)
 {
     PCLResult result;
 
@@ -400,14 +400,14 @@ inline PCLResult applyRadiusFilter(
     ror.setNegative(false);
     ror.filter(*result.inlier_cloud);
     // result.inlier_cloud = result.inlier_cloud;
-    std::cout << "[INFO] Applied Radius Outlier Removal for inliers. Cloud size: " 
+    std::cout << "[INFO] Applied Radius Outlier Removal with resulting inliers. Cloud size: " 
               << result.inlier_cloud->size() << std::endl;
 
     // Second pass: get outliers (points that do not meet the criteria).
     ror.setNegative(true);
     ror.filter(*result.outlier_cloud);
     // result.outlier_cloud = cloud_outliers;
-    std::cout << "[INFO] Applied Radius Outlier Removal for outliers. Cloud size: " 
+    std::cout << "[INFO] Applied Radius Outlier Removal with resulting outliers. Cloud size: " 
               << result.outlier_cloud->size() << std::endl;
 
     return result;

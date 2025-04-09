@@ -28,6 +28,11 @@ using CloudInput = std::variant<std::string, typename pcl::PointCloud<PointT>::P
 using Open3DCloudInput = std::variant<std::string, std::shared_ptr<open3d::geometry::PointCloud>>;
 
 
+PointCloudT::Ptr inlier_cloud;
+PointCloudT::Ptr outlier_cloud;
+std::variant<pcl::ModelCoefficients::Ptr, Eigen::Vector4d> var; plane_coefficients; //covers both pcl and open3d libs
+std::string pre_processing_type;
+std::string hazard_metric_type;
 
 //======================================STRUCT TO HOLD PCL RESULT ============================================
 struct PCLResult {
@@ -47,9 +52,9 @@ struct PCLResult {
   };
 //======================================STRUCT TO HOLD CANDIDATE POINTS ============================================
 
-struct SLZDCandidatePoints {
-    pcl::PointXYZ seedPoint;  // A single seed point used to calculate the circle plane
-    std::shared_ptr<pcl::PointCloud<PointT>> detectedSurface;  // Single detected surface, represented as a point cloud
+struct LandingZoneCandidatePoints {
+    pcl::PointXYZ center;  // A center of circular region selected to be a potential candidate for landing
+    std::shared_ptr<pcl::PointCloud<PointT>> circular_patch;  // Single detected surface, represented as a point cloud
     double dataConfidence;  // Data confidence for the candidate zone
     double roughness;  // Roughness value for the candidate landing zone
     double relief;  // Relief value for the candidate landing zone
@@ -58,13 +63,13 @@ struct SLZDCandidatePoints {
     pcl::ModelCoefficients::Ptr plane_coefficients;  // Plane coefficients for the surface
 
     // Constructor to initialize the struct
-    SLZDCandidatePoints()
+    LandingZoneCandidatePoints()
         : dataConfidence(0.0), roughness(0.0), relief(0.0), score(0.0) {
         // Nothing to initialize as the struct contains single values now
     }
 };
 
-
+// why so much repetetive code below
 //===================================Function to convert OPEN3D to PCL ==============================================
 inline PCLResult convertOpen3DToPCL(const OPEN3DResult &open3d_result) {
     PCLResult pcl_result;

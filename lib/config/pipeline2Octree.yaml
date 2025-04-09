@@ -31,7 +31,7 @@ ros__parameters:
       enabled: false
       parameters:
         resolution: 0.1
-    - step: "SphericalNeighbourhood"
+    - step: "SphericalNeighbourhood"q
       enabled: true
       parameters:
         radius: 6.1 #1.1

@@ -876,12 +876,12 @@ inline PCLResult regionGrowingSegmentation2(
   while (!seedQueue.empty()) {
     int seedIdx = seedQueue.front();
     seedQueue.pop();
-    const auto &seedPoint = result.downsampled_cloud->points[seedIdx];
+    const auto &center = result.downsampled_cloud->points[seedIdx];
     const auto &seedNormal = normals->points[seedIdx];
 
     std::vector<int> k_indices;
     std::vector<float> k_sqr_distances;
-    tree->nearestKSearch(seedPoint, normal_k_search, k_indices, k_sqr_distances);
+    tree->nearestKSearch(center, normal_k_search, k_indices, k_sqr_distances);
     for (size_t i = 0; i < k_indices.size(); ++i) {
       int neighborIdx = k_indices[i];
       const auto &neighborPoint = result.downsampled_cloud->points[neighborIdx];
@@ -1398,11 +1398,11 @@ enum MetricType {
 };
 
 
-inline SLZDCandidatePoints rankCandidatePatchFromPCLResult(PCLResult& result, const std::string& metrics = "ALL") 
+inline LandingZoneCandidatePoints rankCandidatePatchFromPCLResult(PCLResult& result, const std::string& metrics = "ALL") 
 {
-    // Create an SLZDCandidatePoints object for the result
-    SLZDCandidatePoints candidate;  
-    // By default, the new SLZDCandidatePoints has dataConfidence, relief,
+    // Create an LandingZoneCandidatePoints object for the result
+    LandingZoneCandidatePoints candidate;  
+    // By default, the new LandingZoneCandidatePoints has dataConfidence, relief,
     // roughness, and score set to 0.0 in its constructor.
 
     // Check if the result contains a valid inlier cloud

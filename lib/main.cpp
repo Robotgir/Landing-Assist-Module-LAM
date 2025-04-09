@@ -14,19 +14,18 @@ using PointT = pcl::PointXYZI;
 int main(int argc, char **argv)
 {
 
-    std::string config_file = "/home/airsim_user/Landing-Assist-Module-LAM/lib/config/pipeline2Octree.yaml";
+    std::string config_file = "/home/airsim_user/Landing-Assist-Module-LAM/lib/config/pipeline2_prosac.yaml";
     // Load YAML configuration.
     YAML::Node config = YAML::LoadFile(config_file);
-    YAML::Node params = config["ros__parameters"];
+    YAML::Node params = config["parameters"];
 
     // Set file paths.
-
     std::string pcd_file_path = params["pcd_file_path"].as<std::string>();
 
     bool g_visualize = params["visualize"].as<bool>();
     bool final_visualize = params["final_visualize"].as<bool>();
     bool voxel_downsample_pointcloud = params["voxel_downsample_pointcloud"].as<bool>();
-    std::string final_result_visualization = params["final_result_visualization"].as<std::string>();
+    std::string viz_inlier_or_outlier_or_both = params["viz_inlier_or_outlier_or_both"].as<std::string>();
     float voxelSize = params["voxel_size"].as<float>();
 
     // Load input point cloud using the provided loadPCLCloud function.
@@ -35,29 +34,20 @@ int main(int argc, char **argv)
     pclResult.inlier_cloud = pcl::make_shared<typename pcl::PointCloud<PointT>>();
     auto loaded_cloud_pcl = loadPCLCloud<PointT>(pcd_file_path);
 
-
-    PCLResult final_result;
-    final_result.outlier_cloud = loaded_cloud_pcl;
-
     if (voxel_downsample_pointcloud)
     {
-        // Downsample if necessary (here, using a voxel size of 0.45 as example).
-        downsamplePointCloudPCL<PointT>(loaded_cloud_pcl, pclResult.inlier_cloud, voxelSize);
-        std::cout << "Downsampled cloud has " << pclResult.inlier_cloud->points.size() << " points." << std::endl;
+        downsamplePointCloudPCL<PointT>(loaded_cloud_pcl, pclResult.downsampled_cloud, voxelSize);
+        std::cout << "Downsampled cloud has " << pclResult.downsampled_cloud->points.size() << " points." << std::endl;
      
     }
     else
     {
-        // pclResult.downsampled_cloud = loaded_cloud_pcl;
+        pclResult.downsampled_cloud = PointCloudT::Ptr(new PointCloudT());
         pclResult.inlier_cloud = loaded_cloud_pcl;
     }
-    // Start with the downsampled cloud.
-    pcl::PointCloud<PointT>::Ptr current_cloud = pclResult.inlier_cloud;
+    pcl::PointCloud<PointT>::Ptr current_cloud = loaded_cloud_pcl;
 
     pcl::PointCloud<PointT>::Ptr sor_result;
-
-    // Variable to store safe landing zones
-    //  std::vector<typename pcl::PointCloud<PointT>::Ptr>> slz;
 
     // Get the pipeline configuration.
     YAML::Node pipeline = params["pipeline"];
@@ -322,7 +312,7 @@ int main(int argc, char **argv)
             
             PCLResult result;
     
-            std::vector<SLZDCandidatePoints> candidatePoints;
+            std::vector<LandingZoneCandidatePoints> candidatePoints;
             std::tie(result, candidatePoints) =kdtreeNeighbourhoodPCAFilterOMP(pclResult.inlier_cloud,
                                             radius, k, angleThreshold,
                                             landingZoneNumber, maxAttempts);
@@ -366,7 +356,7 @@ int main(int argc, char **argv)
         std::cout << "\n--- Final Processed Cloud ---\n";
 
         final_result.inlier_cloud = pclResult.inlier_cloud;
-        visualizePCL(final_result, final_result_visualization);
+        visualizePCL(final_result, viz_inlier_or_outlier_or_both);
     }
 
     return 0;

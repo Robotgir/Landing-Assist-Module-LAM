@@ -122,7 +122,7 @@ inline bool isPatchCollisionFreeOctree(
 //-----------------------------------------------------------------------------
 // octreeNeighbourhoodPCAFilter: returns multiple collision-free patches
 //-----------------------------------------------------------------------------
-inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>>
+inline std::tuple<PCLResult, std::vector<LandingZoneCandidatePoints>>
 octreeNeighbourhoodPCAFilter(
     const CloudInput<pcl::PointXYZI>& input,
     double initRadius,
@@ -134,7 +134,7 @@ octreeNeighbourhoodPCAFilter(
     srand(static_cast<unsigned int>(time(0)));
 
     // We'll store all accepted patches in finalCandidates
-    std::vector<SLZDCandidatePoints> finalCandidates;  
+    std::vector<LandingZoneCandidatePoints> finalCandidates;  
     std::vector<PCLResult> candidatePatches; // For demonstration
 
     std::cout << "Loading point cloud..." << std::endl;
@@ -271,10 +271,10 @@ octreeNeighbourhoodPCAFilter(
                 std::cout << "Candidate patch is collision-free => accepting.\n";
 
                 // Create a new candidate object
-                SLZDCandidatePoints candidate;
-                candidate.seedPoint.x = searchPoint.x;
-                candidate.seedPoint.y = searchPoint.y;
-                candidate.seedPoint.z = searchPoint.z;
+                LandingZoneCandidatePoints candidate;
+                candidate.center.x = searchPoint.x;
+                candidate.center.y = searchPoint.y;
+                candidate.center.z = searchPoint.z;
                 candidate.plane_coefficients = bestFlatPatch.plane_coefficients;
 
                 // Metric calculations
@@ -289,7 +289,7 @@ octreeNeighbourhoodPCAFilter(
                                  - candidate.relief
                                  - candidate.roughness;
                 // Detected surface
-                candidate.detectedSurface = bestFlatPatch.inlier_cloud;
+                candidate.circular_patch = bestFlatPatch.inlier_cloud;
 
                 // Save this candidate in our vector
                 finalCandidates.push_back(candidate);
@@ -336,7 +336,7 @@ octreeNeighbourhoodPCAFilter(
 //------------------------------------------------------------------------------------------
 // octreeNeighbourhoodPCAFilter: returns multiple collision-free patches(OMP PARALLELIZATION)
 //------------------------------------------------------------------------------------------
-inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>> octreeNeighbourhoodPCAFilterOMP(
+inline std::tuple<PCLResult, std::vector<LandingZoneCandidatePoints>> octreeNeighbourhoodPCAFilterOMP(
     const CloudInput<pcl::PointXYZI>& input,
     double initRadius,
     int k,
@@ -346,7 +346,7 @@ inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>> octreeNeighbourho
 {
     srand(static_cast<unsigned int>(time(0)));
 
-    std::vector<SLZDCandidatePoints> finalCandidates;
+    std::vector<LandingZoneCandidatePoints> finalCandidates;
     std::vector<PCLResult> candidatePatches;
 
     std::cout << "[octreeNeighbourhoodPCAFilter] Loading point cloud..." << std::endl;
@@ -519,10 +519,10 @@ inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>> octreeNeighbourho
                 margin, clearance, step_size);
 
             if (collisionFree) {
-                SLZDCandidatePoints candidate;
-                candidate.seedPoint.x = searchPoint.x;
-                candidate.seedPoint.y = searchPoint.y;
-                candidate.seedPoint.z = searchPoint.z;
+                LandingZoneCandidatePoints candidate;
+                candidate.center.x = searchPoint.x;
+                candidate.center.y = searchPoint.y;
+                candidate.center.z = searchPoint.z;
                 candidate.plane_coefficients = bestFlatPatch.plane_coefficients;
 
                 candidate.dataConfidence = calculateDataConfidencePCL(bestFlatPatch);
@@ -533,7 +533,7 @@ inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>> octreeNeighbourho
                                  + candidate.patchRadius
                                  - candidate.relief
                                  - candidate.roughness;
-                candidate.detectedSurface = bestFlatPatch.inlier_cloud;
+                candidate.circular_patch = bestFlatPatch.inlier_cloud;
 
                 #pragma omp critical
                 {
@@ -655,7 +655,7 @@ inline bool isPatchCollisionFreeKdtree(
 //-----------------------------------------------------------------------------
 // kdtreeNeighbourhoodPCAFilter: returns multiple collision-free patches
 //-----------------------------------------------------------------------------
-inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>>
+inline std::tuple<PCLResult, std::vector<LandingZoneCandidatePoints>>
 kdtreeNeighbourhoodPCAFilter(
     const CloudInput<pcl::PointXYZI>& input,
     double initRadius,
@@ -667,7 +667,7 @@ kdtreeNeighbourhoodPCAFilter(
     srand(static_cast<unsigned int>(time(0)));
 
     // We'll store all accepted patches in finalCandidates
-    std::vector<SLZDCandidatePoints> finalCandidates;  
+    std::vector<LandingZoneCandidatePoints> finalCandidates;  
     std::vector<PCLResult> candidatePatches; // For demonstration
 
     std::cout << "Loading point cloud..." << std::endl;
@@ -804,10 +804,10 @@ kdtreeNeighbourhoodPCAFilter(
                 std::cout << "Candidate patch is collision-free => accepting.\n";
 
                 // Create a new candidate object
-                SLZDCandidatePoints candidate;
-                candidate.seedPoint.x = searchPoint.x;
-                candidate.seedPoint.y = searchPoint.y;
-                candidate.seedPoint.z = searchPoint.z;
+                LandingZoneCandidatePoints candidate;
+                candidate.center.x = searchPoint.x;
+                candidate.center.y = searchPoint.y;
+                candidate.center.z = searchPoint.z;
                 candidate.plane_coefficients = bestFlatPatch.plane_coefficients;
 
                 // Metric calculations
@@ -822,7 +822,7 @@ kdtreeNeighbourhoodPCAFilter(
                                  - candidate.relief
                                  - candidate.roughness;
                 // Detected surface
-                candidate.detectedSurface = bestFlatPatch.inlier_cloud;
+                candidate.circular_patch = bestFlatPatch.inlier_cloud;
 
                 // Save this candidate in our vector
                 finalCandidates.push_back(candidate);
@@ -868,7 +868,7 @@ kdtreeNeighbourhoodPCAFilter(
 //----------------------------------------------------------------------------------------
 // kdtreeNeighbourhoodPCAFilter: returns multiple collision-free patches(OMP PARELLIZATION)
 //----------------------------------------------------------------------------------------
-inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>> kdtreeNeighbourhoodPCAFilterOMP(
+inline std::tuple<PCLResult, std::vector<LandingZoneCandidatePoints>> kdtreeNeighbourhoodPCAFilterOMP(
     const CloudInput<pcl::PointXYZI>& input,
     double initRadius,
     int k,
@@ -878,7 +878,7 @@ inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>> kdtreeNeighbourho
 {
     srand(static_cast<unsigned int>(time(0)));
 
-    std::vector<SLZDCandidatePoints> finalCandidates;
+    std::vector<LandingZoneCandidatePoints> finalCandidates;
     std::vector<PCLResult> candidatePatches;
 
     std::cout << "[octreeNeighbourhoodPCAFilter] Loading point cloud..." << std::endl;
@@ -1053,10 +1053,10 @@ inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>> kdtreeNeighbourho
                 margin, clearance, step_size);
 
             if (collisionFree) {
-                SLZDCandidatePoints candidate;
-                candidate.seedPoint.x = searchPoint.x;
-                candidate.seedPoint.y = searchPoint.y;
-                candidate.seedPoint.z = searchPoint.z;
+                LandingZoneCandidatePoints candidate;
+                candidate.center.x = searchPoint.x;
+                candidate.center.y = searchPoint.y;
+                candidate.center.z = searchPoint.z;
                 candidate.plane_coefficients = bestFlatPatch.plane_coefficients;
 
                 candidate.dataConfidence = calculateDataConfidencePCL(bestFlatPatch);
@@ -1067,7 +1067,7 @@ inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>> kdtreeNeighbourho
                                  + candidate.patchRadius
                                  - candidate.relief
                                  - candidate.roughness;
-                candidate.detectedSurface = bestFlatPatch.inlier_cloud;
+                candidate.circular_patch = bestFlatPatch.inlier_cloud;
 
                 #pragma omp critical
                 {
@@ -1134,13 +1134,13 @@ inline std::tuple<PCLResult, std::vector<SLZDCandidatePoints>> kdtreeNeighbourho
 //-----------------------------------------------------------------------------
 // rankCandidatePatches: sorts all your collected patches by descending score
 //-----------------------------------------------------------------------------
-inline std::vector<SLZDCandidatePoints> rankCandidatePatches(
-    std::vector<SLZDCandidatePoints>& candidatePoints,
+inline std::vector<LandingZoneCandidatePoints> rankCandidatePatches(
+    std::vector<LandingZoneCandidatePoints>& candidatePoints,
     PCLResult& result)
 {
     // Sort candidate patches by descending score
     std::sort(candidatePoints.begin(), candidatePoints.end(),
-              [](const SLZDCandidatePoints &a, const SLZDCandidatePoints &b) {
+              [](const LandingZoneCandidatePoints &a, const LandingZoneCandidatePoints &b) {
                   return a.score > b.score;
               });
 
@@ -1162,7 +1162,7 @@ inline std::vector<SLZDCandidatePoints> rankCandidatePatches(
 // visualizeRankedCandidatePatches: displays a rank label for each patch
 //-----------------------------------------------------------------------------
 
-inline void visualizeRankedCandidatePatches(const std::vector<SLZDCandidatePoints>& candidatePoints, 
+inline void visualizeRankedCandidatePatches(const std::vector<LandingZoneCandidatePoints>& candidatePoints, 
     const PCLResult &result,float textSize)
 {
     pcl::visualization::PCLVisualizer::Ptr viewer(
@@ -1200,30 +1200,30 @@ inline void visualizeRankedCandidatePatches(const std::vector<SLZDCandidatePoint
     for (size_t idx = 0; idx < candidatePoints.size(); ++idx) {
         const auto &candidate = candidatePoints[idx];
 
-        // Calculate the center point of the patch (seedPoint)
+        // Calculate the center point of the patch
         pcl::PointXYZ centerXYZ;
-        centerXYZ.x = candidate.seedPoint.x;
-        centerXYZ.y = candidate.seedPoint.y;
-        centerXYZ.z = candidate.seedPoint.z;
+        centerXYZ.x = candidate.center.x;
+        centerXYZ.y = candidate.center.y;
+        centerXYZ.z = candidate.center.z;
 
         // Store the required data for visualization
         #pragma omp critical
-        patchData.push_back(std::make_tuple(idx, centerXYZ, candidate.detectedSurface, candidate.patchRadius));
+        patchData.push_back(std::make_tuple(idx, centerXYZ, candidate.circular_patch, candidate.patchRadius));
     }
 
     // Now visualize the patches
     for (const auto &data : patchData) {
         int idx;
         pcl::PointXYZ centerXYZ;
-        pcl::PointCloud<pcl::PointXYZI>::Ptr detectedSurface;
+        pcl::PointCloud<pcl::PointXYZI>::Ptr circular_patch;
         float radius;
 
-        std::tie(idx, centerXYZ, detectedSurface, radius) = data;
+        std::tie(idx, centerXYZ, circular_patch, radius) = data;
 
         // Visualize the patch surface (points of the patch)
         std::stringstream ss;
         ss << "candidate_" << idx << "_surface";
-        viewer->addPointCloud<pcl::PointXYZI>(detectedSurface, ss.str());
+        viewer->addPointCloud<pcl::PointXYZI>(circular_patch, ss.str());
 
         // Add center point as a sphere with the fixed color
         std::stringstream centerName;
