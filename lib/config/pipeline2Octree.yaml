@@ -31,13 +31,13 @@ ros__parameters:
       enabled: false
       parameters:
         resolution: 0.1
-    - step: "SphericalNeighbourhood"q
+    - step: "SphericalNeighbourhood"
       enabled: true
       parameters:
         radius: 6.1 #1.1
         angleThreshold: 10.0 #15.0
         k: 15 #150
-        landingZoneNumber: 50
+        maxlandingZones: 50
         maxAttempts: 100000 #100
         visualization: "both"
         visualization_textSize: 0.8 #0.08

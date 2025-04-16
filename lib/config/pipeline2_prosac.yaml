@@ -1,29 +1,42 @@
 parameters:
   #set pcd path
-  pcd_file_path: "/home/airsim_user/Landing-Assist-Module-LAM/pcds/test.pcd"
+  cloud_file_path: "/home/airsim_user/Landing-Assist-Module-LAM/pcds/test.pcd"
   
   #vizualization
-  visualize: true #visualization for individual function
+  viz_individual_method: true #visualization for individual function
   final_visualize: true #visualizing final result
-  viz_inlier_or_outlier_or_both: "outlier_cloud" # can choose both ,inlier_cloud,outlier_cloud to visualize
+  viz_inlier_or_outlier_or_both_final: "inlier_cloud" # can choose both ,inlier_cloud,outlier_cloud to visualize
   
   # downsampling
   voxel_downsample_pointcloud: true
   voxel_size: 1.5 #0.25
 
+  # hazardmetrics thresholds
+  relief_threshold: 0.15
+
   # Define the pipeline.
   pipeline:
+    - step: "SOR"
+      enabled: false
+      library: "PCL"  # Options: "PCL" or "Open3D"
+      parameters:
+        nb_neighbors: 20
+        std_ratio: 2.0
+        viz_inlier_or_outlier_or_both: "both"
     - step: "Radial"
       enabled: false
       library: "PCL"  # Options: "PCL" or "Open3D"
       parameters:
         radius_search: 1.5
         min_neighbors: 1
-        visualization: "both"
-    - step: "SOR"
+        viz_inlier_or_outlier_or_both: "both"
+    - step: "SphericalNeighbourhood"
       enabled: true
-      library: "PCL"  # Options: "PCL" or "Open3D"
       parameters:
-        nb_neighbors: 20
-        std_ratio: 2.0
-        visualization: "both"
+        radius: 6.1 #1.1
+        angleThreshold: 10.0 #15.0
+        k: 15 #150
+        maxlandingZones: 50
+        maxAttempts: 100000 #100
+        viz_inlier_or_outlier_or_both: "both"
+        visualization_textSize: 0.8 #0.08

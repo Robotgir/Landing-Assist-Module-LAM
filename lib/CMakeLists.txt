@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(Test)
+project(LAM)
 
 # Use C++17
 set(CMAKE_CXX_STANDARD 17)
@@ -58,54 +58,11 @@ set(CMAKE_EXE_LINKER_FLAGS
 # ----------------------------------------------------------------------------
 # 5. Create the executables
 # ----------------------------------------------------------------------------
-add_executable(test_hazard_metrices test/test_hazard_metrices.cpp)
-add_executable(test_pointcloud_preprocessing test/test_pointcloud_preprocessing.cpp)
 add_executable(main main.cpp)
 
 # ----------------------------------------------------------------------------
 # 6. Link libraries
 # ----------------------------------------------------------------------------
-
-target_link_libraries(test_hazard_metrices 
-    PRIVATE
-    ${PCL_LIBRARIES} 
-    Open3D::Open3D 
-    octomap 
-    gtest 
-    gtest_main
-    GL                       # -lGL
-    GLU                      # -lGLU
-    glfw                     # -lglfw
-    GLEW                     # -lGLEW
-    assimp                   # -lassimp
-    jsoncpp                 # -ljsoncpp
-    jpeg                     # -ljpeg
-    png                      # -lpng
-    z                        # -lz
-    pthread                  # -lpthread
-    ${VTK_LIBRARIES}         # Link VTK libraries here as well
-)
-
-
-target_link_libraries(test_pointcloud_preprocessing 
-    ${PCL_LIBRARIES} 
-    Open3D::Open3D 
-    octomap 
-    gtest 
-    gtest_main
-    GL                     # -lGL
-    GLU                    # -lGLU
-    glfw                   # -lglfw
-    GLEW                   # -lGLEW
-    assimp                 # -lassimp
-    jsoncpp               # -ljsoncpp
-    jpeg                   # -ljpeg
-    png                    # -lpng
-    z                      # -lz
-    pthread                # -lpthread
-)
-
-
 
 # Link libraries.
 target_link_libraries(main
