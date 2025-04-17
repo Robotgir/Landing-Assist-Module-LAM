@@ -1,6 +1,8 @@
 parameters:
   #set pcd path
-  cloud_file_path: "/home/airsim_user/Landing-Assist-Module-LAM/pcds/test.pcd"
+  cloud_file_path: "/home/airsim_user/Landing-Assist-Module-LAM/pcds/test_100x100m.pcd"
+  #cloud_file_path: "/home/airsim_user/Landing-Assist-Module-LAM/pcds/test.pcd"
+
   
   #vizualization
   viz_individual_method: true #visualization for individual function
@@ -9,7 +11,7 @@ parameters:
   
   # downsampling
   voxel_downsample_pointcloud: true
-  voxel_size: 1.5 #0.25
+  voxel_size: 1 #0.25
 
   # hazardmetrics thresholds
   relief_threshold: 0.15
@@ -31,12 +33,27 @@ parameters:
         min_neighbors: 1
         viz_inlier_or_outlier_or_both: "both"
     - step: "SphericalNeighbourhood"
-      enabled: true
+      enabled: false
       parameters:
         radius: 6.1 #1.1
         angleThreshold: 10.0 #15.0
         k: 15 #150
-        maxlandingZones: 50
+        maxlandingZones: 10
         maxAttempts: 100000 #100
         viz_inlier_or_outlier_or_both: "both"
         visualization_textSize: 0.8 #0.08
+    - step: "sequentialOverlapping"
+      enabled: false
+      parameters:
+        voxel_size: 7
+        overlap: 0.9
+        #angle in degrees
+        angleThreshold: 5.0    
+    - step: "regionGrowingSegmentation"
+      enabled: true
+      parameters:
+        curvature_threshold: 0.001
+        angle_threshold_deg: 10
+        min_cluster_size: 50
+        max_cluster_size: 1000000
+ 

@@ -524,7 +524,7 @@ inline std::vector<LandingZoneCandidatePoint> kdtreeNeighbourhoodPCAFilterOMP(
             {
 
                 auto finalSuccessfulRadius = currentRadius - radiusIncrement;
-                bool collisionFree = !isPatchCollisionFreeVertically(pcaResult_inlier_cloud, relief_threshold);
+                bool collisionFree = true;
 
                 if (collisionFree)
                 {
@@ -1048,6 +1048,479 @@ inline void visualizePCLWithRankedCandidates(
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     std::cout << "[INFO] visualizePCLWithRankedCandidates: Visualizer closed\n";
+}
+
+// Function to compute slopes for each cell in the point cloud
+
+std::vector<CellSlope> computeCellSlopes(const PointCloud& cloud, float voxel_size, float overlap) {
+    std::vector<CellSlope> results;
+
+    // Print voxel_size and overlap
+    std::cout << "Voxel Size: " << voxel_size << " meters" << std::endl;
+    std::cout << "Overlap: " << overlap << " meters" << std::endl;
+
+    // Convert to PCL for processing
+    PointCloudPcl pcl_cloud;
+    if (std::holds_alternative<PointCloudPcl>(cloud)) {
+        pcl_cloud = std::get<PointCloudPcl>(cloud);
+    } else {
+        pcl_cloud = convertOpen3DToPCL(std::get<PointCloudOpen3D>(cloud));
+    }
+
+    // Validate inputs
+    if (voxel_size <= 0) {
+        throw std::invalid_argument("Voxel size must be positive.");
+    }
+    if (overlap < 0 || overlap > voxel_size) {
+        throw std::invalid_argument("Overlap must be between 0 and voxel_size.");
+    }
+    if (pcl_cloud->empty()) {
+        throw std::runtime_error("Input point cloud is empty.");
+    }
+    float step_size = voxel_size - overlap;
+
+    // Find bounds
+    float min_x = std::numeric_limits<float>::max();
+    float max_x = std::numeric_limits<float>::lowest();
+    float min_y = std::numeric_limits<float>::max();
+    float max_y = std::numeric_limits<float>::lowest(); // Fixed: Correct declaration
+
+    for (const auto& point : pcl_cloud->points) {
+        min_x = std::min(min_x, point.x);
+        max_x = std::max(max_x, point.x);
+        min_y = std::min(min_y, point.y);
+        max_y = std::max(max_y, point.y); // Fixed: Use max_y
+    }
+
+    // Calculate grid dimensions
+    int grid_width = static_cast<int>(std::ceil((max_x - min_x) / step_size)) + 1;
+    int grid_height = static_cast<int>(std::ceil((max_y - min_y) / step_size)) + 1;
+
+    // Print 2D grid size
+    std::cout << "2D Grid Size: " << grid_width << " x " << grid_height 
+              << " (" << (grid_width * grid_height) << " total cells)" << std::endl;
+
+    // Iterate over cells
+    for (int cell_y = 0; cell_y < grid_height; ++cell_y) {
+        for (int cell_x = 0; cell_x < grid_width; ++cell_x) {
+            int cell_index = cell_y * grid_width + cell_x;
+
+            // Define kernel bounds
+            float kernel_x_min = min_x + cell_x * step_size;
+            float kernel_x_max = kernel_x_min + voxel_size;
+            float kernel_y_min = min_y + cell_y * step_size;
+            float kernel_y_max = kernel_y_min + voxel_size;
+
+            // Collect points within the kernel
+            PointCloudPcl cell_cloud(new pcl::PointCloud<PointPcl>);
+            for (const auto& point : pcl_cloud->points) {
+                if (point.x >= kernel_x_min && point.x < kernel_x_max &&
+                    point.y >= kernel_y_min && point.y < kernel_y_max) {
+                    cell_cloud->points.push_back(point);
+                }
+            }
+
+            // Skip cells with fewer than 3 points
+            if (cell_cloud->points.size() < 3) {
+                std::cerr << "Warning: Skipping cell " << cell_index 
+                          << " at (" << cell_x << ", " << cell_y 
+                          << ") with only " << cell_cloud->points.size() 
+                          << " points (minimum 3 required for PCA)." << std::endl;
+                continue;
+            }
+
+            // Perform PCA
+            try {
+                pcl::PCA<PointPcl> pca;
+                pca.setInputCloud(cell_cloud);
+                Eigen::Matrix3f eigen_vectors = pca.getEigenVectors();
+                Eigen::Vector3f eigen_values = pca.getEigenValues();
+                Eigen::Vector4f centroid;
+                pcl::compute3DCentroid(*cell_cloud, centroid);
+
+                // Find index of smallest eigenvalue (true normal direction)
+                int min_index;
+                eigen_values.minCoeff(&min_index);
+
+                // Get normal from eigenvector corresponding to smallest eigenvalue
+                Eigen::Vector3f normal = eigen_vectors.col(min_index);
+                float dot_product = std::abs(normal.dot(Eigen::Vector3f::UnitZ()));
+                dot_product = std::min(1.0f, std::max(-1.0f, dot_product));  // Clamp to valid acos input
+                double slope = std::acos(dot_product);  // radians
+                double slope_deg = slope * 180.0 / M_PI;
+
+                std::cout << "Cell " << cell_index 
+                        << " at (" << cell_x << ", " << cell_y 
+                        << "): Slope = " << slope_deg << " degrees" << std::endl;
+
+                CellSlope result;
+                result.index = cell_index;
+                result.slope = slope_deg;
+                result.centroid = centroid.head<3>();
+                results.push_back(result);
+            } catch (const std::exception& e) {
+                std::cerr << "Error computing PCA for cell " << cell_index 
+                          << ": " << e.what() << std::endl;
+                continue;
+            }
+        }
+    }
+
+    return results;
+}
+
+// Function to visualize the point cloud with cells colored by slope threshold
+void visualizeSlopeColoredCloud(const PointCloud& cloud, const std::vector<CellSlope>& cell_slopes, 
+    float voxel_size, float overlap, double slope_threshold_degrees) {
+
+    // Validate inputs
+    if (cell_slopes.empty()) {
+        throw std::runtime_error("Cell slopes vector is empty.");
+    }
+    if (voxel_size <= 0 || overlap < 0 || overlap > voxel_size) {
+        throw std::invalid_argument("Invalid voxel_size or overlap parameters.");
+    }
+
+    // Compute grid parameters
+    float step_size = voxel_size - overlap;
+    float min_x = std::numeric_limits<float>::max();
+    float max_x = std::numeric_limits<float>::lowest();
+    float min_y = std::numeric_limits<float>::max();
+    float max_y = std::numeric_limits<float>::lowest();
+
+    // Slope map for quick lookup
+    std::unordered_map<int, double> slope_map;
+    for (const auto& cell : cell_slopes) {
+        slope_map[cell.index] = cell.slope; // Slopes are now in degrees
+    }
+
+    // Handle PCL visualization
+    if (std::holds_alternative<PointCloudPcl>(cloud)) {
+        PointCloudPcl pcl_cloud = std::get<PointCloudPcl>(cloud);
+        if (pcl_cloud->empty()) {
+            throw std::runtime_error("PCL point cloud is empty.");
+        }
+
+        // Compute bounds
+        for (const auto& point : pcl_cloud->points) {
+            min_x = std::min(min_x, point.x);
+            max_x = std::max(max_x, point.x);
+            min_y = std::min(min_y, point.y);
+            max_y = std::max(max_y, point.y);
+        }
+
+        int grid_width = static_cast<int>(std::ceil((max_x - min_x) / step_size)) + 1;
+
+        // Create colored PCL cloud
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr colored_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+        colored_cloud->points.reserve(pcl_cloud->points.size());
+
+        for (const auto& point : pcl_cloud->points) {
+            int cell_x = static_cast<int>(std::floor((point.x - min_x) / step_size));
+            int cell_y = static_cast<int>(std::floor((point.y - min_y) / step_size));
+            int cell_index = cell_y * grid_width + cell_x;
+
+            pcl::PointXYZRGB colored_point;
+            colored_point.x = point.x;
+            colored_point.y = point.y;
+            colored_point.z = point.z;
+
+            auto it = slope_map.find(cell_index);
+            if (it != slope_map.end() && std::abs(it->second) <= slope_threshold_degrees) {
+                colored_point.r = 0;   // Green
+                colored_point.g = 255;
+                colored_point.b = 0;
+            } else {
+                colored_point.r = 255; // Red
+                colored_point.g = 0;
+                colored_point.b = 0;
+            }
+            colored_cloud->points.push_back(colored_point);
+        }
+
+        colored_cloud->width = colored_cloud->points.size();
+        colored_cloud->height = 1;
+        colored_cloud->is_dense = pcl_cloud->is_dense;
+
+        // Visualize
+        pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer("PCL Point Cloud Viewer"));
+        viewer->setBackgroundColor(0, 0, 0);
+        viewer->addPointCloud<pcl::PointXYZRGB>(colored_cloud, "colored_cloud");
+        viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "colored_cloud");
+        viewer->addCoordinateSystem(1.0, "reference");
+
+        float z_pos = (max_x - min_x) * 2;
+        viewer->setCameraPosition((min_x + max_x) / 2, (min_y + max_y) / 2, z_pos,
+                                   (min_x + max_x) / 2, (min_y + max_y) / 2, 0,
+                                   0, 1, 0);
+
+        viewer->addText("Slope Threshold: " + std::to_string(slope_threshold_degrees) + " degrees", 
+                        10, 10, 16, 1, 1, 1, "threshold_text");
+
+        while (!viewer->wasStopped()) {
+            viewer->spinOnce(100);
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
+
+    // Handle Open3D visualization
+    else {
+        PointCloudOpen3D open3d_cloud = std::get<PointCloudOpen3D>(cloud);
+        if (open3d_cloud->points_.empty()) {
+            throw std::runtime_error("Open3D point cloud is empty.");
+        }
+
+        for (const auto& point : open3d_cloud->points_) {
+            min_x = std::min(min_x, static_cast<float>(point(0)));
+            max_x = std::max(max_x, static_cast<float>(point(0)));
+            min_y = std::min(min_y, static_cast<float>(point(1)));
+            max_y = std::max(max_y, static_cast<float>(point(1)));
+        }
+
+        int grid_width = static_cast<int>(std::ceil((max_x - min_x) / step_size)) + 1;
+
+        open3d_cloud->colors_.resize(open3d_cloud->points_.size());
+
+        for (size_t i = 0; i < open3d_cloud->points_.size(); ++i) {
+            float x = static_cast<float>(open3d_cloud->points_[i].x());
+            float y = static_cast<float>(open3d_cloud->points_[i].y());
+            int cell_x = static_cast<int>(std::floor((x - min_x) / step_size));
+            int cell_y = static_cast<int>(std::floor((y - min_y) / step_size));
+            int cell_index = cell_y * grid_width + cell_x;
+
+            auto it = slope_map.find(cell_index);
+            if (it != slope_map.end() && std::abs(it->second) <= slope_threshold_degrees) {
+                open3d_cloud->colors_[i] = Eigen::Vector3d(0, 1, 0); // Green
+            } else {
+                open3d_cloud->colors_[i] = Eigen::Vector3d(1, 0, 0); // Red
+            }
+        }
+
+        open3d::visualization::Visualizer vis;
+        vis.CreateVisualizerWindow("Open3D Point Cloud Viewer", 1280, 720);
+        vis.AddGeometry(open3d_cloud);
+
+        auto& view = vis.GetViewControl();
+        float z_pos = (max_x - min_x) * 2;
+        view.SetUp({0, 1, 0});
+        view.SetFront({0, 0, -1});
+        view.SetLookat({(min_x + max_x) / 2, (min_y + max_y) / 2, 0});
+        view.SetZoom(0.5);
+
+        std::cout << "Visualizing with slope threshold: " << slope_threshold_degrees << " degrees\n";
+
+        vis.Run();
+        vis.DestroyVisualizerWindow();
+    }
+}
+
+// Function to perform region growing segmentation
+SegmentationResult segmentPointCloud(const PointCloud& input_cloud,
+                                    float curvature_threshold,
+                                    float angle_threshold_deg,
+                                    int min_cluster_size = 50,
+                                    int max_cluster_size = 1000000) {
+    SegmentationResult result;
+    PointCloudPcl pcl_cloud;
+    if (std::holds_alternative<PointCloudPcl>(input_cloud)) {
+        pcl_cloud = std::get<PointCloudPcl>(input_cloud);
+    } else if (std::holds_alternative<PointCloudOpen3D>(input_cloud)) {
+        pcl_cloud = convertOpen3DToPCL(std::get<PointCloudOpen3D>(input_cloud));
+    } else {
+        std::cerr << "Error: Invalid point cloud type!" << std::endl;
+        return result;
+    }
+
+    if (pcl_cloud->empty()) {
+        std::cerr << "Error: Input point cloud is empty!" << std::endl;
+        return result;
+    }
+
+    std::cout << "Input cloud size: " << pcl_cloud->size() << " points" << std::endl;
+
+    pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
+    pcl::NormalEstimation<PointPcl, pcl::Normal> normal_estimator;
+    pcl::search::KdTree<PointPcl>::Ptr tree(new pcl::search::KdTree<PointPcl>);
+    normal_estimator.setSearchMethod(tree);
+    normal_estimator.setInputCloud(pcl_cloud);
+    normal_estimator.setKSearch(50);
+    std::cout << "Estimating normals..." << std::endl;
+    normal_estimator.compute(*normals);
+
+    if (normals->empty()) {
+        std::cerr << "Error: Normal estimation failed!" << std::endl;
+        return result;
+    }
+
+    pcl::RegionGrowing<PointPcl, pcl::Normal> reg;
+    reg.setMinClusterSize(min_cluster_size);
+    reg.setMaxClusterSize(max_cluster_size);
+    reg.setSearchMethod(tree);
+    reg.setNumberOfNeighbours(30);
+    reg.setInputCloud(pcl_cloud);
+    reg.setInputNormals(normals);
+    reg.setSmoothnessThreshold(angle_threshold_deg * M_PI / 180.0);
+    reg.setCurvatureThreshold(curvature_threshold);
+
+    std::cout << "Performing region growing segmentation..." << std::endl;
+    reg.extract(result.cluster_indices);
+
+    for (const auto& cluster : result.cluster_indices) {
+        PointCloudPcl patch(new pcl::PointCloud<PointPcl>);
+        for (const auto& idx : cluster.indices) {
+            patch->points.push_back(pcl_cloud->points[idx]);
+        }
+        patch->width = patch->points.size();
+        patch->height = 1;
+        if (!patch->empty()) {
+            result.patches.push_back(patch);
+        }
+    }
+
+    std::cout << "Found " << result.patches.size() << " patches with "
+              << result.cluster_indices.size() << " clusters." << std::endl;
+    return result;
+}
+
+// Updated visualization function
+void visualizePatches(const PointCloudPcl& input_cloud,
+                      const std::vector<pcl::PointIndices>& cluster_indices) {
+    if (input_cloud->empty()) {
+        std::cerr << "Error: Input point cloud is empty!" << std::endl;
+        return;
+    }
+
+    // Initialize PCL visualizer with a larger window
+    pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer("Region Growing Visualization"));
+    viewer->setBackgroundColor(0, 0, 0);
+    viewer->setSize(1280, 720); // Set window size for better visibility
+
+    // Create colored point cloud
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr colored_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+    colored_cloud->points.resize(input_cloud->size());
+
+    // Compute bounding box and center
+    double min_x = std::numeric_limits<double>::max();
+    double max_x = std::numeric_limits<double>::lowest();
+    double min_y = min_x, max_y = max_x;
+    double min_z = min_x, max_z = max_x;
+    size_t valid_points = 0;
+
+    // Calculate bounds
+    for (size_t i = 0; i < input_cloud->size(); ++i) {
+        if (!std::isnan(input_cloud->points[i].x) &&
+            !std::isnan(input_cloud->points[i].y) &&
+            !std::isnan(input_cloud->points[i].z)) {
+            min_x = std::min(min_x, (double)input_cloud->points[i].x);
+            max_x = std::max(max_x, (double)input_cloud->points[i].x);
+            min_y = std::min(min_y, (double)input_cloud->points[i].y);
+            max_y = std::max(max_y, (double)input_cloud->points[i].y);
+            min_z = std::min(min_z, (double)input_cloud->points[i].z);
+            max_z = std::max(max_z, (double)input_cloud->points[i].z);
+            valid_points++;
+        }
+    }
+
+    // Compute center and translate points to origin
+    double center_x = (min_x + max_x) / 2.0;
+    double center_y = (min_y + max_y) / 2.0;
+    double center_z = (min_z + max_z) / 2.0;
+
+    // Copy points and apply translation
+    for (size_t i = 0; i < input_cloud->size(); ++i) {
+        if (!std::isnan(input_cloud->points[i].x) &&
+            !std::isnan(input_cloud->points[i].y) &&
+            !std::isnan(input_cloud->points[i].z)) {
+            colored_cloud->points[i].x = input_cloud->points[i].x - center_x;
+            colored_cloud->points[i].y = input_cloud->points[i].y - center_y;
+            colored_cloud->points[i].z = input_cloud->points[i].z - center_z;
+            colored_cloud->points[i].r = 255; // Red for unsegmented
+            colored_cloud->points[i].g = 0;
+            colored_cloud->points[i].b = 0;
+        } else {
+            colored_cloud->points[i].x = 0;
+            colored_cloud->points[i].y = 0;
+            colored_cloud->points[i].z = 0;
+            colored_cloud->points[i].r = 0;
+            colored_cloud->points[i].g = 0;
+            colored_cloud->points[i].b = 0;
+        }
+    }
+    colored_cloud->width = colored_cloud->points.size();
+    colored_cloud->height = 1;
+
+    std::cout << "Valid points in input cloud: " << valid_points << std::endl;
+
+    // Mark segmented points as green
+    size_t segmented_points = 0;
+    for (const auto& cluster : cluster_indices) {
+        for (const auto& idx : cluster.indices) {
+            if (idx < colored_cloud->size() && !std::isnan(colored_cloud->points[idx].x)) {
+                colored_cloud->points[idx].r = 0;
+                colored_cloud->points[idx].g = 255; // Green for segmented
+                colored_cloud->points[idx].b = 0;
+                segmented_points++;
+            }
+        }
+    }
+
+    std::cout << "Segmented points: " << segmented_points << std::endl;
+
+    if (colored_cloud->empty() || valid_points == 0) {
+        std::cerr << "Error: Colored point cloud is empty or contains no valid points!" << std::endl;
+        return;
+    }
+
+    // Save colored cloud for debugging
+    pcl::io::savePCDFileASCII("colored_output.pcd", *colored_cloud);
+    std::cout << "Saved colored point cloud to colored_output.pcd" << std::endl;
+
+    // Compute extent for camera distance
+    double extent = std::max({max_x - min_x, max_y - min_y, max_z - min_z});
+    double dist = extent * 2.0; // Camera distance to fit the cloud
+    if (dist < 1e-6) dist = 10.0; // Avoid zero distance
+
+    // Add point cloud to viewer
+    viewer->addPointCloud<pcl::PointXYZRGB>(colored_cloud, "colored_cloud");
+    viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "colored_cloud");
+
+    // Set camera position to center the cloud
+    viewer->setCameraPosition(
+        0, 0, dist,  // Camera position (looking from z-axis)
+        0, 0, 0,     // Focal point (origin, where cloud is centered)
+        0, 1, 0      // Up vector
+    );
+
+    // Scale coordinate system
+    double coord_scale = extent / 10.0;
+    if (coord_scale < 0.1) coord_scale = 0.1;
+    if (coord_scale > 10.0) coord_scale = 10.0;
+    viewer->addCoordinateSystem(coord_scale);
+    viewer->initCameraParameters();
+
+    // Print debug info
+    std::cout << "Starting visualization..."
+              << "Original bounding box: "
+              << "x=[" << min_x << ", " << max_x << "], "
+              << "y=[" << min_y << ", " << max_y << "], "
+              << "z=[" << min_z << ", " << max_z << "]" << std::endl;
+    std::cout << "Center translation: (" << center_x << ", " << center_y << ", " << center_z << ")" << std::endl;
+    std::cout << "Camera distance: " << dist << ", Coordinate scale: " << coord_scale << std::endl;
+
+    // Spin the viewer with a timeout
+    auto start_time = std::chrono::steady_clock::now();
+    while (!viewer->wasStopped()) {
+        viewer->spinOnce(100);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::steady_clock::now() - start_time).count();
+        if (elapsed > 60) {
+            std::cout << "Visualization timed out after 60 seconds." << std::endl;
+            break;
+        }
+    }
+    viewer->close();
+    std::cout << "Visualization closed." << std::endl;
 }
 
 #endif

@@ -126,7 +126,9 @@ int main(int argc, char **argv)
             candidatePoints = kdtreeNeighbourhoodPCAFilterOMP(process_inlier_cloud,
                                             radius, k, angleThreshold, relief_threshold,
                                             maxlandingZones, maxAttempts);
+
             
+            // finerKdtreeNeighbourhoodPCAFilterOMP(loaded_cloud, candidatePointsCentersAndRadius, angleThreshold);
             
             auto rankedCandidates = rankCandidatePatches(candidatePoints);
            
@@ -142,6 +144,27 @@ int main(int argc, char **argv)
                 visualizePCLWithRankedCandidates(processResult, rankedCandidates, viz_inlier_or_outlier_or_both, textSize);
                 
             }
+        }
+        else if (step == "sequentialOverlapping"){
+            float voxel_size = pipeline[i]["parameters"]["voxel_size"].as<float>();
+            float overlap = pipeline[i]["parameters"]["overlap"].as<float>();
+            float angleThreshold = pipeline[i]["parameters"]["angleThreshold"].as<float>();
+            auto coarse_cellslopes = computeCellSlopes(processResult.inlier_cloud, voxel_size, overlap);
+            visualizeSlopeColoredCloud(processResult.inlier_cloud, coarse_cellslopes, voxel_size, overlap, angleThreshold);
+
+
+        }
+        else if (step == "regionGrowingSegmentation"){
+            float curvature_threshold = pipeline[i]["parameters"]["curvature_threshold"].as<float>();
+            float angle_threshold_deg = pipeline[i]["parameters"]["angle_threshold_deg"].as<float>();
+            float min_cluster_size = pipeline[i]["parameters"]["min_cluster_size"].as<float>();
+            float max_cluster_size = pipeline[i]["parameters"]["max_cluster_size"].as<float>();
+            auto flat_regions_RGS = segmentPointCloud(processResult.inlier_cloud, curvature_threshold, angle_threshold_deg, min_cluster_size, max_cluster_size);
+            auto process_inlier_cloud = convertOpen3DToPCL(std::get<PointCloudOpen3D>(processResult.inlier_cloud));
+
+            visualizePatches(process_inlier_cloud, flat_regions_RGS.cluster_indices);
+
+
         }
         else
         {

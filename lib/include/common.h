@@ -23,7 +23,6 @@ using PointPcl = pcl::PointXYZI;
 using PointCloudPcl = pcl::PointCloud<PointPcl>::Ptr;
 using PointCloudOpen3D = std::shared_ptr<open3d::geometry::PointCloud>;
 using PointCloud = std::variant<PointCloudPcl, PointCloudOpen3D>; //covers both pcl and open3d pointcloud types
-using CloudInput = std::variant<std::string, PointCloudPcl, PointCloudOpen3D>;
 
 PointCloud cloud;
 PointCloud inlier_cloud ;
@@ -71,6 +70,20 @@ struct LandingZoneCandidatePoint {
     {}
 };
 
+// Structure to hold slope and cell index
+struct CellSlope {
+    int index;
+    double slope;
+    Eigen::Vector3f centroid;
+
+    // // Constructor for convenience
+    // CellSlope(int idx, double slp, const Eigen::Vector3f& ctr)
+    //     : index(idx), slope(slp), centroid(ctr) {}
+};
+struct SegmentationResult {
+    std::vector<PointCloudPcl> patches;
+    std::vector<pcl::PointIndices> cluster_indices;
+};
 //===================================Function to convert OPEN3D to PCL ==============================================
 inline PointCloudPcl convertOpen3DToPCL(const PointCloudOpen3D &open3d_cloud) {
     PointCloudPcl pcl_cloud = std::make_shared<pcl::PointCloud<PointPcl>>();
